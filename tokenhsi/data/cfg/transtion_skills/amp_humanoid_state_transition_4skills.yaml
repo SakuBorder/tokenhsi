@@ -1,14 +1,15 @@
-# Configuration for 4 basic skills state transition training
-env:
+# tokenhsi/data/cfg/transition_skills/amp_humanoid_state_transition_4skills.yaml
+
+env: 
   numEnvs: 4096
   envSpacing: 5
-  episodeLength: 600  # 20s for transition
+  episodeLength: 600  # 20秒总时长，包含完整的转移循环
   enableDebugVis: False
   
   pdControl: True
   powerScale: 1.0
   controlFrequencyInv: 2
-  stateInit: "Random"  # Random initialization from skill states
+  stateInit: "Default"
   hybridInitProb: 0.8
   numAMPObsSteps: 10
 
@@ -23,19 +24,26 @@ env:
 
   enableSelfCollisionDetection: True
   
-  # State transition specific configuration
-  enableStateTransition: True
-  transitionMode: "pairwise"  # pairwise transitions between skills
+  # 状态转移特定配置
+  sourceSkillDuration: 8.0    # 源技能执行时间（秒）
+  transitionDuration: 4.0     # 状态转移时间（秒）  
+  targetSkillDuration: 8.0    # 目标技能执行时间（秒）
   
-  # Skills for transition training
+  # 转移奖励权重
+  transitionRewardWeights:
+    source_skill: 0.3      # 源技能执行质量权重
+    target_skill: 0.5      # 目标技能执行质量权重
+    transition_smooth: 0.2 # 平滑转移质量权重
+  
+  # 支持的技能列表
   skill: [
-    "loco", 
-    "loco_sit", "sit",
-    "loco_carry", "omomo", "pickUp", "carryWith", "putDown", 
-    "loco_climb", "climb", "climbNoRSI"
+    "loco",           # 0: traj
+    "loco_sit", "sit", # 1: sit
+    "loco_carry", "omomo", "pickUp", "carryWith", "putDown", # 2: carry  
+    "loco_climb", "climb", "climbNoRSI"  # 3: climb
   ]
   
-  # Probability distribution for skill sampling during transition
+  # 技能采样概率（用于AMP discriminator）
   skillDiscProb: [
     0.1,
     0.1, 0.2,
@@ -43,32 +51,33 @@ env:
     0.1, 0.1, 0.1,
   ]
   
-  # State transition pairs (from_skill_id, to_skill_id)
-  transitionPairs: [
-    [0, 1], [0, 2], [0, 3],  # traj -> sit, carry, climb
-    [1, 0], [1, 2], [1, 3],  # sit -> traj, carry, climb
-    [2, 0], [2, 1], [2, 3],  # carry -> traj, sit, climb
-    [3, 0], [3, 1], [3, 2]   # climb -> traj, sit, carry
-  ]
-  
-  # Transition timing configuration
-  transitionStartTime: 5.0    # Start transition after 5s
-  transitionDuration: 10.0    # 10s for smooth transition
-  transitionEndTime: 15.0     # Complete transition by 15s
-  
-  # Task configuration for transitions
+  # 任务配置
   enableTaskObs: True
   enableTaskMaskObs: True
   enableApplyMaskOnTaskObs: True
   supportedTasks: ["traj", "sit", "carry", "climb"]
 
-  # Multi-task reward weighting during transition
-  transitionRewardWeights:
-    source_skill: 0.3    # Weight for source skill maintenance
-    target_skill: 0.5    # Weight for target skill achievement
-    transition_smooth: 0.2  # Weight for smooth transition
+  # 多任务配置（简化版，因为我们专注于转移学习）
+  traj:
+    numTrajSamples: 10
+    trajSampleTimestep: 0.5
+    speedMin: 1.4
+    speedMax: 1.5
+    accelMax: 2.0
+    skill: ["loco"]
+  
+  sit:
+    skill: ["loco_sit", "sit"]
 
-  # Power reward
+  climb:
+    skill: ["loco_climb", "climb", "climbNoRSI"]
+
+  carry:
+    onlyVelReward: True
+    onlyHeightHandHeldReward: True
+    skill: ["loco_carry", "pickUp", "carryWith", "putDown", "omomo"]
+
+  # 功率奖励
   power_reward: True
   power_coefficient: 0.0005
 
