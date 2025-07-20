@@ -17,190 +17,29 @@ from body_models.model_loader import get_body_model
 from lpanlib.isaacgym_utils.vis.api import vis_motion_use_scenepic_animation
 from lpanlib.others.colors import name_to_rgb
 
-from tokenhsi.data.data_utils import project_joints, project_joints_simple,project_joints_g1
+from tokenhsi.data.data_utils import project_joints, project_joints_simple, project_joints_g1
 
 joints_to_use = {
     "from_smpl_original_to_amp_humanoid": np.array([0, 6, 12, 17, 19, 21, 16, 18, 20, 2, 5, 8, 1, 4, 7]),
     "from_smpl_original_to_phys_humanoid_v3": np.array([0, 6, 12, 17, 19, 21, 16, 18, 20, 2, 5, 8, 1, 4, 7]),
-    "from_smpl_original_to_g1": np.array([0, 6, 12, 17, 19, 21, 16, 18, 20, 2, 5, 8, 1, 4, 7])
+    "from_smpl_original_to_g1_29dof": np.array([
+        0,   # SMPL Pelvis -> G1 pelvis (索引0)
+        15,  # SMPL Torso -> G1 torso_link (索引15) 
+        12,  # SMPL Neck -> G1 waist_yaw_link (索引13) 或其他合适的上身关节
+        16,  # SMPL L_Shoulder -> G1 left_shoulder_pitch_link (索引16)
+        19,  # SMPL L_Elbow -> G1 left_elbow_link (索引19) 
+        22,  # SMPL L_Hand -> G1 left_wrist_yaw_link (索引22)
+        23,  # SMPL R_Shoulder -> G1 right_shoulder_pitch_link (索引23)
+        26,  # SMPL R_Elbow -> G1 right_elbow_link (索引26)
+        29,  # SMPL R_Hand -> G1 right_wrist_yaw_link (索引29)
+        1,   # SMPL L_Hip -> G1 left_hip_pitch_link (索引1)
+        4,   # SMPL L_Knee -> G1 left_knee_link (索引4)
+        6,   # SMPL L_Ankle -> G1 left_ankle_roll_link (索引6) 
+        7,   # SMPL R_Hip -> G1 right_hip_pitch_link (索引7)
+        10,  # SMPL R_Knee -> G1 right_knee_link (索引10)
+        12,  # SMPL R_Ankle -> G1 right_ankle_roll_link (索引12)
+    ]),
 }
-
-
-# G1 T-pose 3D可视化代码
-
-# 方法1: 使用内置的poselib可视化功能
-def visualize_g1_tpose_method1(g1_tpose):
-    """
-    方法1: 使用poselib内置的可视化功能
-    这是最简单直接的方法
-    """
-    from lpanlib.poselib.visualization.common import plot_skeleton_state
-    
-    print("=== 方法1: 使用poselib内置可视化 ===")
-    print("正在显示G1 T-pose...")
-    
-    # 直接使用内置的plot函数
-    plot_skeleton_state(g1_tpose)
-    print("T-pose可视化窗口已打开")
-
-
-# 方法2: 使用matplotlib 3D绘制
-def visualize_g1_tpose_method2(g1_tpose):
-
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    import numpy as np
-    
-    
-    global_positions = g1_tpose.global_translation.numpy()
-    skeleton_tree = g1_tpose.skeleton_tree
-    
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    ax.scatter(global_positions[:, 0], global_positions[:, 1], global_positions[:, 2], 
-               c='red', s=100, alpha=0.8, label='Joints')
-    
-    for i, name in enumerate(skeleton_tree.node_names):
-        ax.text(global_positions[i, 0], global_positions[i, 1], global_positions[i, 2], 
-                f'{i}:{name}', fontsize=8)
-    
-    # 
-    parent_indices = skeleton_tree.parent_indices.numpy()
-    for i, parent_idx in enumerate(parent_indices):
-        if parent_idx >= 0:  
-            ax.plot([global_positions[parent_idx, 0], global_positions[i, 0]],
-                   [global_positions[parent_idx, 1], global_positions[i, 1]],
-                   [global_positions[parent_idx, 2], global_positions[i, 2]], 
-                   'b-', linewidth=2, alpha=0.7)
-    
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('G1 Robot T-pose Visualization')
-    ax.legend()
-    
-    max_range = np.array([global_positions[:,0].max()-global_positions[:,0].min(),
-                         global_positions[:,1].max()-global_positions[:,1].min(),
-                         global_positions[:,2].max()-global_positions[:,2].min()]).max() / 2.0
-    mid_x = (global_positions[:,0].max()+global_positions[:,0].min()) * 0.5
-    mid_y = (global_positions[:,1].max()+global_positions[:,1].min()) * 0.5
-    mid_z = (global_positions[:,2].max()+global_positions[:,2].min()) * 0.5
-    ax.set_xlim(mid_x - max_range, mid_x + max_range)
-    ax.set_ylim(mid_y - max_range, mid_y + max_range)
-    ax.set_zlim(mid_z - max_range, mid_z + max_range)
-    
-    plt.show()
-    print("可视化完成")
-
-def create_g1_tpose_corrected(g1_skeleton):
-
-    g1_tpose = SkeletonState.zero_pose(g1_skeleton)
-    local_rotation = g1_tpose.local_rotation.clone()
-
-    print(f"G1骨架关节数量: {len(g1_skeleton.node_names)}")
-    print(f"G1关节名称列表: {g1_skeleton.node_names}")
-
-    try:
-        left_arm_idx = g1_skeleton.index("left_upper_arm")
-        print(f"找到左臂关节: 'left_upper_arm' 索引为 {left_arm_idx}")
-        
-        right_arm_idx = g1_skeleton.index("right_upper_arm")
-        print(f"找到右臂关节: 'right_upper_arm' 索引为 {right_arm_idx}")
-        
-        left_rotation = quat_from_angle_axis(
-            angle=torch.tensor([90.0]), 
-            axis=torch.tensor([1.0, 0.0, 0.0]), 
-            degree=True
-        )
-        local_rotation[left_arm_idx] = quat_mul(
-            left_rotation,
-            local_rotation[left_arm_idx]
-        )
-        print(f"已设置左臂T-pose旋转: +90度绕X轴")
-
-        # 设置右臂关节的T-pose旋转（向下90度，参考H1版本）
-        right_rotation = quat_from_angle_axis(
-            angle=torch.tensor([-90.0]), 
-            axis=torch.tensor([1.0, 0.0, 0.0]), 
-            degree=True
-        )
-        local_rotation[right_arm_idx] = quat_mul(
-            right_rotation,
-            local_rotation[right_arm_idx]
-        )
-        print(f"已设置右臂T-pose旋转: -90度绕X轴")
-        
-    except KeyError as e:
-        print(f"关节名称查找失败: {e}")
-        print("尝试使用备用方法...")
-        
-        if len(g1_skeleton.node_names) == 15:
-            left_arm_idx = 6   # left_upper_arm应该在索引6
-            right_arm_idx = 3  # right_upper_arm应该在索引3
-            
-            print(f"使用预期顺序 - 左臂索引: {left_arm_idx}, 右臂索引: {right_arm_idx}")
-            print(f"实际关节名称 - 左臂: {g1_skeleton.node_names[left_arm_idx]}, 右臂: {g1_skeleton.node_names[right_arm_idx]}")
-            
-            if ("arm" in g1_skeleton.node_names[left_arm_idx].lower() and 
-                "left" in g1_skeleton.node_names[left_arm_idx].lower()):
-                
-                left_rotation = quat_from_angle_axis(
-                    angle=torch.tensor([90.0]), 
-                    axis=torch.tensor([1.0, 0.0, 0.0]), 
-                    degree=True
-                )
-                local_rotation[left_arm_idx] = quat_mul(
-                    left_rotation,
-                    local_rotation[left_arm_idx]
-                )
-                print(f"已设置左臂({g1_skeleton.node_names[left_arm_idx]})T-pose旋转")
-            else:
-                print(f"警告: 左臂关节名称不符合预期: {g1_skeleton.node_names[left_arm_idx]}")
-                
-            if ("arm" in g1_skeleton.node_names[right_arm_idx].lower() and 
-                "right" in g1_skeleton.node_names[right_arm_idx].lower()):
-                
-                # 设置右臂T-pose旋转
-                right_rotation = quat_from_angle_axis(
-                    angle=torch.tensor([-90.0]), 
-                    axis=torch.tensor([1.0, 0.0, 0.0]), 
-                    degree=True
-                )
-                local_rotation[right_arm_idx] = quat_mul(
-                    right_rotation,
-                    local_rotation[right_arm_idx]
-                )
-                print(f"已设置右臂({g1_skeleton.node_names[right_arm_idx]})T-pose旋转")
-            else:
-                print(f"警告: 右臂关节名称不符合预期: {g1_skeleton.node_names[right_arm_idx]}")
-        else:
-            print(f"错误: G1骨架关节数量不是15个，实际为{len(g1_skeleton.node_names)}个")
-            print("无法设置T-pose，将使用零姿态")
-
-    try:
-        g1_tpose = SkeletonState.from_rotation_and_root_translation(
-            skeleton_tree=g1_skeleton,
-            r=local_rotation,
-            t=torch.zeros(3),  
-            is_local=True
-        )
-        print("G1 T-pose创建成功")
-        
-        print(f"T-pose验证:")
-        print(f"  根节点位置: {g1_tpose.root_translation}")
-        if len(g1_skeleton.node_names) >= 7:
-            print(f"  左臂关节旋转: {local_rotation[6] if len(local_rotation) > 6 else 'N/A'}")
-        if len(g1_skeleton.node_names) >= 4:
-            print(f"  右臂关节旋转: {local_rotation[3] if len(local_rotation) > 3 else 'N/A'}")
-            
-    except Exception as e:
-        print(f"T-pose创建失败: {e}")
-        print("使用原始零姿态")
-        g1_tpose = SkeletonState.zero_pose(g1_skeleton)
-
-    print("=" * 50)
-    return g1_tpose
 
 if __name__ == "__main__":
 
@@ -215,23 +54,11 @@ if __name__ == "__main__":
     # load skeleton of phys_humanoid_v3
     phys_humanoid_v3_xml_path = osp.join(osp.dirname(__file__), "../assets/mjcf/humanoid/phys_humanoid_v3.xml")
     phys_humanoid_v3_skeleton = SkeletonTree.from_mjcf(phys_humanoid_v3_xml_path)
+
+
     g1_xml_path = osp.join(osp.dirname(__file__), "../assets/mjcf/g1/g1_29dof.xml")
-    g1_skeleton = SkeletonTree.from_mjcf_g1(g1_xml_path) 
-
+    g1_skeleton = SkeletonTree.from_mjcf(g1_xml_path)
     # import ipdb; ipdb.set_trace()
-    # print(g1_skeleton.node_names)
-    print("=== Skeleton Analysis ===")
-    print(f"amp_humanoid nodes: {len(amp_humanoid_skeleton.node_names)}")
-    print(f"amp_humanoid names: {amp_humanoid_skeleton.node_names}")
-    print()
-    print(f"phys_humanoid_v3 nodes: {len(phys_humanoid_v3_skeleton.node_names)}")  
-    print(f"phys_humanoid_v3 names: {phys_humanoid_v3_skeleton.node_names}")
-    print()
-    print(f"g1 nodes: {len(g1_skeleton.node_names)}")
-    print(f"g1 names: {g1_skeleton.node_names}")
-
-
-
     # load skeleton of smpl_original
     bm = get_body_model("SMPL", "NEUTRAL", batch_size=1, debug=False)
     jts_global_trans = bm().joints[0, :24, :].cpu().detach().numpy()
@@ -257,7 +84,6 @@ if __name__ == "__main__":
     smpl_original_tpose = SkeletonState.zero_pose(smpl_original_skeleton)
     
     amp_humanoid_tpose = SkeletonState.zero_pose(amp_humanoid_skeleton)
-    
     local_rotation = amp_humanoid_tpose.local_rotation
     local_rotation[amp_humanoid_skeleton.index("left_upper_arm")] = quat_mul(
         quat_from_angle_axis(angle=torch.tensor([90.0]), axis=torch.tensor([1.0, 0.0, 0.0]), degree=True), 
@@ -269,6 +95,29 @@ if __name__ == "__main__":
     )
 
     phys_humanoid_v3_tpose = SkeletonState.zero_pose(phys_humanoid_v3_skeleton)
+
+
+    g1_tpose = SkeletonState.zero_pose(g1_skeleton)
+    local_rotation = g1_tpose.local_rotation
+
+    # 根据G1的结构调整手臂姿态（如果需要）
+    # 需要找到G1中对应的手臂关节索引
+    try:
+        left_shoulder_idx = g1_skeleton.index("left_shoulder_pitch_link")
+        right_shoulder_idx = g1_skeleton.index("right_shoulder_pitch_link")
+        
+        local_rotation[left_shoulder_idx] = quat_mul(
+            quat_from_angle_axis(angle=torch.tensor([90.0]), axis=torch.tensor([1.0, 0.0, 0.0]), degree=True), 
+            local_rotation[left_shoulder_idx]
+        )
+        local_rotation[right_shoulder_idx] = quat_mul(
+            quat_from_angle_axis(angle=torch.tensor([-90.0]), axis=torch.tensor([1.0, 0.0, 0.0]), degree=True), 
+            local_rotation[right_shoulder_idx]
+        )
+    except:
+        # 如果找不到对应关节，跳过调整
+        pass
+
     local_rotation = phys_humanoid_v3_tpose.local_rotation
     local_rotation[phys_humanoid_v3_skeleton.index("left_upper_arm")] = quat_mul(
         quat_from_angle_axis(angle=torch.tensor([90.0]), axis=torch.tensor([1.0, 0.0, 0.0]), degree=True), 
@@ -278,8 +127,6 @@ if __name__ == "__main__":
         quat_from_angle_axis(angle=torch.tensor([-90.0]), axis=torch.tensor([1.0, 0.0, 0.0]), degree=True), 
         local_rotation[phys_humanoid_v3_skeleton.index("right_upper_arm")]
     )
-    g1_tpose = create_g1_tpose_corrected(g1_skeleton)
-    visualize_g1_tpose_method2(g1_tpose)
 
     # input/output dirs
     input_dir = osp.join(osp.dirname(__file__), "smpl_params")
@@ -345,27 +192,24 @@ if __name__ == "__main__":
             #     "joints_to_use": joints_to_use["from_smpl_original_to_phys_humanoid_v3"],
             #     "root_height_offset": 0.07,
             # },
-
             "g1_29dof": {
                 "skeleton": g1_skeleton,
                 "xml_path": g1_xml_path,
                 "tpose": g1_tpose,
-                "joints_to_use": joints_to_use["from_smpl_original_to_g1"],
-                "root_height_offset": 0.07,
+                "joints_to_use": joints_to_use["from_smpl_original_to_g1_29dof"],
+                "root_height_offset": 0.1,  # 根据G1高度调整
             },
         }
 
         ###### retargeting ######
-        ###### retargeting ######
         for k, v in configs.items():
-
 
             target_origin_global_rotation = v["tpose"].global_rotation.clone()
 
             target_aligned_global_rotation = quat_mul_norm( 
                 torch.tensor([-0.5, -0.5, -0.5, 0.5]), target_origin_global_rotation
             )
-            
+
             target_final_global_rotation = quat_mul_norm(
                 skeleton_state.global_rotation.clone()[..., v["joints_to_use"], :], target_aligned_global_rotation.clone()
             )
@@ -378,7 +222,6 @@ if __name__ == "__main__":
                 is_local=False,
             ).local_repr()
             new_motion = SkeletonMotion.from_skeleton_state(new_skeleton_state, fps=fps)
-
 
             new_motion_params_root_trans = new_motion.root_translation.clone()
             new_motion_params_local_rots = new_motion.local_rotation.clone()
@@ -400,16 +243,18 @@ if __name__ == "__main__":
             new_skeleton_state = SkeletonState.from_rotation_and_root_translation(v["skeleton"], new_motion_params_local_rots, new_motion_params_root_trans, is_local=True)
             new_motion = SkeletonMotion.from_skeleton_state(new_skeleton_state, fps=fps)
 
-
+            # if k == "amp_humanoid":
+            #     new_motion = project_joints(new_motion)
+            # elif k == "phys_humanoid" or k == "phys_humanoid_v2" or k == "phys_humanoid_v3":
+            #     new_motion = project_joints_simple(new_motion)
+            # else:
+            #     pass
             if k == "amp_humanoid":
                 new_motion = project_joints(new_motion)
             elif k == "phys_humanoid" or k == "phys_humanoid_v2" or k == "phys_humanoid_v3":
                 new_motion = project_joints_simple(new_motion)
             elif k == "g1_29dof":
-                print(f"\nApplying project_joints_g1...")
-                new_motion = project_joints_g1(new_motion)
-                
-
+                new_motion = project_joints_g1(new_motion)  # 或根据需要选择投影函数
             else:
                 pass
 
@@ -419,45 +264,9 @@ if __name__ == "__main__":
             save_path = osp.join(save_dir, "ref_motion.npy")
             new_motion.to_file(save_path)
 
-            for axis, name in enumerate(['X', 'Y', 'Z']):
-                motion_range = new_motion.global_translation[:, :, axis]
-                # print(f"  {name}-axis: min={motion_range.min():.3f}, max={motion_range.max():.3f}, range={motion_range.max()-motion_range.min():.3f}")
-            
-            # print("Key joint movement ranges:")
-            for joint_name in ['left_thigh', 'right_thigh', 'left_shin', 'right_shin']:
-                if joint_name in g1_skeleton.node_names:
-                    joint_idx = g1_skeleton.index(joint_name)
-                    joint_pos = new_motion.global_translation[:, joint_idx, :]
-                    y_range = joint_pos[:, 1].max() - joint_pos[:, 1].min()
-                    # print(f"  {joint_name} Y-range: {y_range:.3f}")
-            print("=== Retargeted Motion 检查 ===")
-            print("global_translation shape:", new_motion.global_translation.shape)
-            print("global_translation min/max:", new_motion.global_translation.min().item(), new_motion.global_translation.max().item())
-            print("是否全为零:", torch.allclose(new_motion.global_translation, torch.zeros_like(new_motion.global_translation)))
-
-            # 打印根节点轨迹
-            print("根节点轨迹 (前5帧):", new_motion.root_translation[:5])
-
-
-            print(f"\n=== Joint Mapping Check for {k} ===")
-            smpl_joints_used = joints_to_use["from_smpl_original_to_g1"]
-            g1_joint_order = g1_skeleton.node_names
-            
-            print("SMPL -> G1 mapping:")
-            for i, smpl_idx in enumerate(smpl_joints_used):
-                g1_joint_name = g1_joint_order[i]
-                smpl_joint_name = smpl_original_skeleton.node_names[smpl_idx]
-                print(f"  SMPL[{smpl_idx}] {smpl_joint_name} -> G1[{i}] {g1_joint_name}")
-                smpl_pos = skeleton_state.global_translation[0, smpl_joints_used]
-                g1_pos = new_motion.global_translation[0]
-                diff = torch.norm(smpl_pos - g1_pos, dim=-1)
-                print("SMPL vs G1 第一帧位置差异:", diff)
-
             # plot_skeleton_motion_interactive(new_motion)
-            
 
-
-            # # scenepic animation
+            # scenepic animation
             vis_motion_use_scenepic_animation(
                 asset_filename=v["xml_path"],
                 rigidbody_global_pos=new_motion.global_translation,
@@ -467,4 +276,3 @@ if __name__ == "__main__":
                 color=name_to_rgb['AliceBlue'] * 255,
                 output_path=osp.join(save_dir, "ref_motion_render.html"),
             )
-
