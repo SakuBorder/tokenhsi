@@ -1,0 +1,156 @@
+# tokenhsi/data/cfg/longterm_task_completion/amp_humanoid_flexible_longterm_challenge.yaml
+
+env: 
+  numEnvs: 8
+  envSpacing: 5
+  episodeLength: 3600  # 120秒，测试更长序列
+  enableDebugVis: True  # 开启可视化便于观察
+  
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2
+  stateInit: "Default"
+  hybridInitProb: 0.8
+  numAMPObsSteps: 10
+
+  localRootObs: True
+  localRootObsPolicy: False
+  rootHeightObs: False
+  rootHeightObsPolicy: False
+  keyBodies: ["right_hand", "left_hand", "right_foot", "left_foot"]
+  contactBodies: ["right_foot", "left_foot"]
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+
+  enableSelfCollisionDetection: True
+  
+  # 挑战性测试配置
+  skillExecutionTime: 12.0        # 更长的技能执行时间
+  transitionTime: 2.0             # 更短的转移时间（更有挑战性）
+  enableRandomSequences: False    # 使用预定义的挑战序列
+  enableStateTransition: True     
+  
+  # 固定为最大序列长度进行压力测试
+  minSequenceLength: 6            
+  maxSequenceLength: 6            
+  
+  # 挑战性预定义序列 - 测试所有可能的技能转移
+  predefinedSequences: [
+    [0, 1, 2, 3, 0, 1],    # traj->sit->carry->climb->traj->sit
+    [3, 2, 1, 0, 3, 2],    # climb->carry->sit->traj->climb->carry
+    [1, 3, 0, 2, 1, 3],    # sit->climb->traj->carry->sit->climb
+    [2, 0, 3, 1, 2, 0],    # carry->traj->climb->sit->carry->traj
+    [0, 3, 1, 2, 0, 3],    # traj->climb->sit->carry->traj->climb
+    [3, 0, 2, 1, 3, 0],    # climb->traj->carry->sit->climb->traj
+    [1, 2, 3, 0, 1, 2],    # sit->carry->climb->traj->sit->carry
+    [2, 1, 0, 3, 2, 1],    # carry->sit->traj->climb->carry->sit
+  ]
+  
+  # 支持的技能列表
+  skill: [
+    "loco",           # 0: traj
+    "loco_sit", "sit", # 1: sit
+    "loco_carry", "omomo", "pickUp", "carryWith", "putDown", # 2: carry  
+    "loco_climb", "climb", "climbNoRSI"  # 3: climb
+  ]
+  
+  skillDiscProb: [
+    0.1,
+    0.1, 0.2,
+    0.1, 0.1, 0.05, 0.0, 0.05,
+    0.1, 0.1, 0.1,
+  ]
+  commonSkill: ""
+  enableTaskSpecificDisc: True
+
+  # multi tasks
+  enableTaskObs: True
+  enableTaskMaskObs: True
+  enableApplyMaskOnTaskObs: True
+  supportedTasks: ["traj", "sit", "carry", "climb"]
+
+  enableIET: True # only for the last subtask
+  maxTransitionSteps: 60 # training
+  maxTransitionStepsDemo: 20 # testing
+  maxIETSteps: 60
+  successThreshold: 0.3
+
+  enableDynObjBUGReset: True
+  enableDynObjFallTermination: False
+  enableDynObjUpfacingTermination: False
+  enableDynObjUpfacingRwd: True
+  enableClimbHumanFallTermination: True
+
+  heightmap:
+
+    use: True
+
+    localHeightObs: True
+
+    # configs for rendering height map of the dynamic scene
+    FoVSpacing: 1.0
+    dim: 128
+    camHeight: 10.0
+    batch_size: 4096
+
+    # build height sensors centered at the humanoid root joint
+    cubeHeightMapSideLength: 2.0
+    cubeHeightMapSideNumPoints: 25 # interval 0.1
+    vizHeightMap: True # when headless, this will not work
+
+  traj:
+    numTrajSamples: 15
+    trajSampleTimestep: 0.5
+    speedMin: 1.2
+    speedMax: 1.8  # 更大的速度变化范围
+    accelMax: 2.5
+    sharpTurnProb: 0.05  # 增加急转弯概率
+    sharpTurnAngle: 1.57
+    failDist: 6.0  # 更宽松的失败距离
+    enableExtendedTraj: True
+    extendDist: 1.0
+    skill: ["loco"]
+  
+  sit:
+    skill: ["loco_sit", "sit"]
+
+  climb:
+    skill: ["loco_climb", "climb", "climbNoRSI"]
+
+  carry:
+    onlyVelReward: True
+    onlyHeightHandHeldReward: True
+    box_vel_penalty: True
+    box_vel_pen_coeff: 0.5  # 减少惩罚以鼓励更快转移
+    box_vel_pen_threshold: 2.0
+    skill: ["loco_carry", "pickUp", "carryWith", "putDown", "omomo"]
+
+  # 功率奖励
+  power_reward: True
+  power_coefficient: 0.0003  # 减少功率惩罚
+
+  asset:
+    assetRoot: "tokenhsi/data/assets"
+    assetFileName: "mjcf/humanoid/phys_humanoid_v3.xml"
+
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 10.0
+
+  flex:
+    num_inner_iterations: 10
+    warm_start: 0.25
