@@ -22,23 +22,7 @@ from tokenhsi.data.data_utils import project_joints, project_joints_simple, proj
 joints_to_use = {
     "from_smpl_original_to_amp_humanoid": np.array([0, 6, 12, 17, 19, 21, 16, 18, 20, 2, 5, 8, 1, 4, 7]),
     "from_smpl_original_to_phys_humanoid_v3": np.array([0, 6, 12, 17, 19, 21, 16, 18, 20, 2, 5, 8, 1, 4, 7]),
-    "from_smpl_original_to_g1_29dof": np.array([
-        0,   # SMPL Pelvis -> G1 pelvis (索引0)
-        15,  # SMPL Torso -> G1 torso_link (索引15) 
-        12,  # SMPL Neck -> G1 waist_yaw_link (索引13) 或其他合适的上身关节
-        16,  # SMPL L_Shoulder -> G1 left_shoulder_pitch_link (索引16)
-        19,  # SMPL L_Elbow -> G1 left_elbow_link (索引19) 
-        22,  # SMPL L_Hand -> G1 left_wrist_yaw_link (索引22)
-        23,  # SMPL R_Shoulder -> G1 right_shoulder_pitch_link (索引23)
-        26,  # SMPL R_Elbow -> G1 right_elbow_link (索引26)
-        29,  # SMPL R_Hand -> G1 right_wrist_yaw_link (索引29)
-        1,   # SMPL L_Hip -> G1 left_hip_pitch_link (索引1)
-        4,   # SMPL L_Knee -> G1 left_knee_link (索引4)
-        6,   # SMPL L_Ankle -> G1 left_ankle_roll_link (索引6) 
-        7,   # SMPL R_Hip -> G1 right_hip_pitch_link (索引7)
-        10,  # SMPL R_Knee -> G1 right_knee_link (索引10)
-        12,  # SMPL R_Ankle -> G1 right_ankle_roll_link (索引12)
-    ]),
+    "from_smpl_original_to_g1_29dof": np.array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]),  # 暂时占位
 }
 
 if __name__ == "__main__":
