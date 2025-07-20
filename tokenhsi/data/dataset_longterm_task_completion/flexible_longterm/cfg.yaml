@@ -1,0 +1,30 @@
+# tokenhsi/data/dataset_longterm_task_completion/task_plans/flexible_longterm/cfg.yaml
+
+# 灵活长技能组合的任务计划配置
+task_plan: ["traj", "sit", "carry", "climb"]  # 支持的四个基础技能
+
+# 目标对象（占位符，灵活长技能会动态生成序列）
+tar_object: [0, 0, 0, 0]
+
+# 目标轨迹（占位符）
+tar_traj: [0, 0, 0, 0]
+
+# 目标位置（占位符）
+tar_pos: [
+  [0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0], 
+  [0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0]
+]
+
+# 采样目标来源（占位符）
+sample_target_from: ["traj_0", "scene_0", "tarpos_0", "scene_0"]
+
+# 人形角色初始位置
+humanoid_init_pos2d: [0.0, 0.0]
+
+# 场景配置（简化场景，专注于技能序列执行）
+scene: []
+
+# 轨迹配置（将在运行时动态生成）
+traj: []
