@@ -290,136 +290,144 @@ def project_joints_simple(motion):
     new_motion = SkeletonMotion.from_skeleton_state(new_sk_state, fps=motion.fps)
 
     return new_motion
+
 def project_joints_g1(motion):
     """ 
-    修正版G1机器人关节投影函数
-    适配from_mjcf_g1生成的15关节标准结构
-    参考H1版本的实现方式
+    专门为G1机器人设计的投影函数
+    G1的关节命名和结构与humanoid模型不同，需要适配
     """
     
-    print(f"G1骨架关节名称: {motion.skeleton_tree.node_names}")
-    print(f"G1骨架关节数量: {len(motion.skeleton_tree.node_names)}")
-    
-    # 根据from_mjcf_g1生成的标准15关节名称获取索引
+    # G1的关节索引映射（需要根据实际的skeleton结构确定）
     try:
-        # 上肢关节 - 使用标准的15关节名称（参考H1版本）
-        right_shoulder_id = motion.skeleton_tree._node_indices["right_upper_arm"]
-        right_elbow_id = motion.skeleton_tree._node_indices["right_lower_arm"]
-        right_hand_id = motion.skeleton_tree._node_indices["right_hand"]
-        left_shoulder_id = motion.skeleton_tree._node_indices["left_upper_arm"]
-        left_elbow_id = motion.skeleton_tree._node_indices["left_lower_arm"]
-        left_hand_id = motion.skeleton_tree._node_indices["left_hand"]
+        # 手臂关节
+        left_shoulder_pitch_id = motion.skeleton_tree._node_indices["left_shoulder_pitch_link"]
+        left_shoulder_roll_id = motion.skeleton_tree._node_indices["left_shoulder_roll_link"] 
+        left_shoulder_yaw_id = motion.skeleton_tree._node_indices["left_shoulder_yaw_link"]
+        left_elbow_id = motion.skeleton_tree._node_indices["left_elbow_link"]
+        left_wrist_roll_id = motion.skeleton_tree._node_indices["left_wrist_roll_link"]
+        left_wrist_pitch_id = motion.skeleton_tree._node_indices["left_wrist_pitch_link"]
+        left_wrist_yaw_id = motion.skeleton_tree._node_indices["left_wrist_yaw_link"]
         
-        print(f"G1 joint indices - Left shoulder: {left_shoulder_id}, elbow: {left_elbow_id}, hand: {left_hand_id}")
-        print(f"G1 joint indices - Right shoulder: {right_shoulder_id}, elbow: {right_elbow_id}, hand: {right_hand_id}")
+        right_shoulder_pitch_id = motion.skeleton_tree._node_indices["right_shoulder_pitch_link"]
+        right_shoulder_roll_id = motion.skeleton_tree._node_indices["right_shoulder_roll_link"]
+        right_shoulder_yaw_id = motion.skeleton_tree._node_indices["right_shoulder_yaw_link"]
+        right_elbow_id = motion.skeleton_tree._node_indices["right_elbow_link"]
+        right_wrist_roll_id = motion.skeleton_tree._node_indices["right_wrist_roll_link"]
+        right_wrist_pitch_id = motion.skeleton_tree._node_indices["right_wrist_pitch_link"]
+        right_wrist_yaw_id = motion.skeleton_tree._node_indices["right_wrist_yaw_link"]
+        
+        # 腿部关节
+        left_hip_pitch_id = motion.skeleton_tree._node_indices["left_hip_pitch_link"]
+        left_hip_roll_id = motion.skeleton_tree._node_indices["left_hip_roll_link"]
+        left_hip_yaw_id = motion.skeleton_tree._node_indices["left_hip_yaw_link"]
+        left_knee_id = motion.skeleton_tree._node_indices["left_knee_link"]
+        left_ankle_pitch_id = motion.skeleton_tree._node_indices["left_ankle_pitch_link"]
+        left_ankle_roll_id = motion.skeleton_tree._node_indices["left_ankle_roll_link"]
+        
+        right_hip_pitch_id = motion.skeleton_tree._node_indices["right_hip_pitch_link"]
+        right_hip_roll_id = motion.skeleton_tree._node_indices["right_hip_roll_link"]
+        right_hip_yaw_id = motion.skeleton_tree._node_indices["right_hip_yaw_link"]
+        right_knee_id = motion.skeleton_tree._node_indices["right_knee_link"]
+        right_ankle_pitch_id = motion.skeleton_tree._node_indices["right_ankle_pitch_link"]
+        right_ankle_roll_id = motion.skeleton_tree._node_indices["right_ankle_roll_link"]
         
     except KeyError as e:
-        print(f"标准关节名称未找到: {e}")
-        print("尝试使用位置索引方法...")
-        
-        # 备用方法：根据from_mjcf_g1的target_joints顺序使用索引
-        # ['pelvis', 'torso', 'head', 'right_upper_arm', 'right_lower_arm', 'right_hand',
-        #  'left_upper_arm', 'left_lower_arm', 'left_hand', 'right_thigh', 'right_shin', 
-        #  'right_foot', 'left_thigh', 'left_shin', 'left_foot']
-        
-        if len(motion.skeleton_tree.node_names) == 15:
-            # 根据标准15关节顺序的索引
-            right_shoulder_id = 3   # right_upper_arm
-            right_elbow_id = 4      # right_lower_arm
-            right_hand_id = 5       # right_hand
-            left_shoulder_id = 6    # left_upper_arm
-            left_elbow_id = 7       # left_lower_arm
-            left_hand_id = 8        # left_hand
-            
-            print(f"使用索引方法 - 关节映射:")
-            print(f"  Right: shoulder[{right_shoulder_id}]={motion.skeleton_tree.node_names[right_shoulder_id]}")
-            print(f"         elbow[{right_elbow_id}]={motion.skeleton_tree.node_names[right_elbow_id]}")
-            print(f"         hand[{right_hand_id}]={motion.skeleton_tree.node_names[right_hand_id]}")
-            print(f"  Left:  shoulder[{left_shoulder_id}]={motion.skeleton_tree.node_names[left_shoulder_id]}")
-            print(f"         elbow[{left_elbow_id}]={motion.skeleton_tree.node_names[left_elbow_id]}")
-            print(f"         hand[{left_hand_id}]={motion.skeleton_tree.node_names[left_hand_id]}")
-        else:
-            print(f"错误: G1骨架关节数量不是15个，实际为{len(motion.skeleton_tree.node_names)}个")
-            print("无法进行关节投影，返回原始运动")
-            return motion
+        print(f"Warning: Could not find joint {e} in G1 skeleton, skipping projection")
+        return motion
     
     device = motion.global_translation.device
-
-    # 右臂投影（参考H1版本的逻辑）
-    right_shoulder_pos = motion.global_translation[..., right_shoulder_id, :]
-    right_elbow_pos = motion.global_translation[..., right_elbow_id, :]
-    right_hand_pos = motion.global_translation[..., right_hand_id, :]
-    right_shoulder_rot = motion.local_rotation[..., right_shoulder_id, :]
-    right_elbow_rot = motion.local_rotation[..., right_elbow_id, :]
-    
-    # 计算右臂肘部角度
-    right_arm_delta0 = right_shoulder_pos - right_elbow_pos
-    right_arm_delta1 = right_hand_pos - right_elbow_pos
-    right_arm_delta0 = right_arm_delta0 / torch.norm(right_arm_delta0, dim=-1, keepdim=True)
-    right_arm_delta1 = right_arm_delta1 / torch.norm(right_arm_delta1, dim=-1, keepdim=True)
-    right_elbow_dot = torch.sum(-right_arm_delta0 * right_arm_delta1, dim=-1)
-    right_elbow_dot = torch.clamp(right_elbow_dot, -1.0, 1.0)
-    right_elbow_theta = torch.acos(right_elbow_dot)
-    right_elbow_q = quat_from_angle_axis(-torch.abs(right_elbow_theta), torch.tensor(np.array([[0.0, 1.0, 0.0]]), 
-                                            device=device, dtype=torch.float32))
-    
-    # 计算右肩补偿旋转
-    right_elbow_local_dir = motion.skeleton_tree.local_translation[right_hand_id]
-    right_elbow_local_dir = right_elbow_local_dir / torch.norm(right_elbow_local_dir)
-    right_elbow_local_dir_tile = torch.tile(right_elbow_local_dir.unsqueeze(0), [right_elbow_rot.shape[0], 1])
-    right_elbow_local_dir0 = quat_rotate(right_elbow_rot, right_elbow_local_dir_tile)
-    right_elbow_local_dir1 = quat_rotate(right_elbow_q, right_elbow_local_dir_tile)
-    right_arm_dot = torch.sum(right_elbow_local_dir0 * right_elbow_local_dir1, dim=-1)
-    right_arm_dot = torch.clamp(right_arm_dot, -1.0, 1.0)
-    right_arm_theta = torch.acos(right_arm_dot)
-    right_arm_theta = torch.where(right_elbow_local_dir0[..., 1] <= 0, right_arm_theta, -right_arm_theta)
-    right_arm_q = quat_from_angle_axis(right_arm_theta, right_elbow_local_dir.unsqueeze(0))
-    right_shoulder_rot = quat_mul(right_shoulder_rot, right_arm_q)
-    
-    # 左臂投影（参考H1版本的逻辑）
-    left_shoulder_pos = motion.global_translation[..., left_shoulder_id, :]
-    left_elbow_pos = motion.global_translation[..., left_elbow_id, :]
-    left_hand_pos = motion.global_translation[..., left_hand_id, :]
-    left_shoulder_rot = motion.local_rotation[..., left_shoulder_id, :]
-    left_elbow_rot = motion.local_rotation[..., left_elbow_id, :]
-    
-    # 计算左臂肘部角度
-    left_arm_delta0 = left_shoulder_pos - left_elbow_pos
-    left_arm_delta1 = left_hand_pos - left_elbow_pos
-    left_arm_delta0 = left_arm_delta0 / torch.norm(left_arm_delta0, dim=-1, keepdim=True)
-    left_arm_delta1 = left_arm_delta1 / torch.norm(left_arm_delta1, dim=-1, keepdim=True)
-    left_elbow_dot = torch.sum(-left_arm_delta0 * left_arm_delta1, dim=-1)
-    left_elbow_dot = torch.clamp(left_elbow_dot, -1.0, 1.0)
-    left_elbow_theta = torch.acos(left_elbow_dot)
-    left_elbow_q = quat_from_angle_axis(-torch.abs(left_elbow_theta), torch.tensor(np.array([[0.0, 1.0, 0.0]]), 
-                                        device=device, dtype=torch.float32))
-
-    # 计算左肩补偿旋转
-    left_elbow_local_dir = motion.skeleton_tree.local_translation[left_hand_id]
-    left_elbow_local_dir = left_elbow_local_dir / torch.norm(left_elbow_local_dir)
-    left_elbow_local_dir_tile = torch.tile(left_elbow_local_dir.unsqueeze(0), [left_elbow_rot.shape[0], 1])
-    left_elbow_local_dir0 = quat_rotate(left_elbow_rot, left_elbow_local_dir_tile)
-    left_elbow_local_dir1 = quat_rotate(left_elbow_q, left_elbow_local_dir_tile)
-    left_arm_dot = torch.sum(left_elbow_local_dir0 * left_elbow_local_dir1, dim=-1)
-    left_arm_dot = torch.clamp(left_arm_dot, -1.0, 1.0)
-    left_arm_theta = torch.acos(left_arm_dot)
-    left_arm_theta = torch.where(left_elbow_local_dir0[..., 1] <= 0, left_arm_theta, -left_arm_theta)
-    left_arm_q = quat_from_angle_axis(left_arm_theta, left_elbow_local_dir.unsqueeze(0))
-    left_shoulder_rot = quat_mul(left_shoulder_rot, left_arm_q)
-
-    # 更新旋转（只更新手臂，像project_joints_simple一样）
     new_local_rotation = motion.local_rotation.clone()
-    new_local_rotation[..., right_shoulder_id, :] = right_shoulder_rot
-    new_local_rotation[..., right_elbow_id, :] = right_elbow_q
-    new_local_rotation[..., left_shoulder_id, :] = left_shoulder_rot
-    new_local_rotation[..., left_elbow_id, :] = left_elbow_q
     
-    # 手部置为单位四元数（参考H1版本）
-    new_local_rotation[..., left_hand_id, :] = quat_identity([1])
-    new_local_rotation[..., right_hand_id, :] = quat_identity([1])
-
-    # 创建新的运动数据
-    new_sk_state = SkeletonState.from_rotation_and_root_translation(motion.skeleton_tree, new_local_rotation, motion.root_translation, is_local=True)
+    # 1. 处理手臂 - 简化版本，主要处理肘关节
+    try:
+        # 左臂投影 - 从肩膀到手腕计算肘关节角度
+        left_shoulder_pos = motion.global_translation[..., left_shoulder_yaw_id, :]
+        left_elbow_pos = motion.global_translation[..., left_elbow_id, :]
+        left_wrist_pos = motion.global_translation[..., left_wrist_pitch_id, :]  # 使用wrist_pitch作为末端
+        
+        left_arm_delta0 = left_shoulder_pos - left_elbow_pos
+        left_arm_delta1 = left_wrist_pos - left_elbow_pos
+        left_arm_delta0 = left_arm_delta0 / torch.norm(left_arm_delta0, dim=-1, keepdim=True)
+        left_arm_delta1 = left_arm_delta1 / torch.norm(left_arm_delta1, dim=-1, keepdim=True)
+        left_elbow_dot = torch.sum(-left_arm_delta0 * left_arm_delta1, dim=-1)
+        left_elbow_dot = torch.clamp(left_elbow_dot, -1.0, 1.0)
+        left_elbow_theta = torch.acos(left_elbow_dot)
+        left_elbow_q = quat_from_angle_axis(-torch.abs(left_elbow_theta), 
+                                          torch.tensor(np.array([[0.0, 1.0, 0.0]]), 
+                                          device=device, dtype=torch.float32))
+        new_local_rotation[..., left_elbow_id, :] = left_elbow_q
+        
+        # 右臂投影
+        right_shoulder_pos = motion.global_translation[..., right_shoulder_yaw_id, :]
+        right_elbow_pos = motion.global_translation[..., right_elbow_id, :]
+        right_wrist_pos = motion.global_translation[..., right_wrist_pitch_id, :]
+        
+        right_arm_delta0 = right_shoulder_pos - right_elbow_pos
+        right_arm_delta1 = right_wrist_pos - right_elbow_pos
+        right_arm_delta0 = right_arm_delta0 / torch.norm(right_arm_delta0, dim=-1, keepdim=True)
+        right_arm_delta1 = right_arm_delta1 / torch.norm(right_arm_delta1, dim=-1, keepdim=True)
+        right_elbow_dot = torch.sum(-right_arm_delta0 * right_arm_delta1, dim=-1)
+        right_elbow_dot = torch.clamp(right_elbow_dot, -1.0, 1.0)
+        right_elbow_theta = torch.acos(right_elbow_dot)
+        right_elbow_q = quat_from_angle_axis(-torch.abs(right_elbow_theta), 
+                                           torch.tensor(np.array([[0.0, 1.0, 0.0]]), 
+                                           device=device, dtype=torch.float32))
+        new_local_rotation[..., right_elbow_id, :] = right_elbow_q
+        
+    except Exception as e:
+        print(f"Warning: Arm projection failed for G1: {e}")
+    
+    # 2. 处理腿部 - G1有复杂的3DOF髋关节，简化处理膝关节
+    try:
+        # 左腿膝关节投影
+        left_hip_pos = motion.global_translation[..., left_hip_yaw_id, :]  # 使用hip_yaw作为髋部位置
+        left_knee_pos = motion.global_translation[..., left_knee_id, :]
+        left_ankle_pos = motion.global_translation[..., left_ankle_pitch_id, :]
+        
+        left_leg_delta0 = left_hip_pos - left_knee_pos
+        left_leg_delta1 = left_ankle_pos - left_knee_pos
+        left_leg_delta0 = left_leg_delta0 / torch.norm(left_leg_delta0, dim=-1, keepdim=True)
+        left_leg_delta1 = left_leg_delta1 / torch.norm(left_leg_delta1, dim=-1, keepdim=True)
+        left_knee_dot = torch.sum(-left_leg_delta0 * left_leg_delta1, dim=-1)
+        left_knee_dot = torch.clamp(left_knee_dot, -1.0, 1.0)
+        left_knee_theta = torch.acos(left_knee_dot)
+        left_knee_q = quat_from_angle_axis(torch.abs(left_knee_theta), 
+                                         torch.tensor(np.array([[0.0, 1.0, 0.0]]), 
+                                         device=device, dtype=torch.float32))
+        new_local_rotation[..., left_knee_id, :] = left_knee_q
+        
+        # 右腿膝关节投影
+        right_hip_pos = motion.global_translation[..., right_hip_yaw_id, :]
+        right_knee_pos = motion.global_translation[..., right_knee_id, :]
+        right_ankle_pos = motion.global_translation[..., right_ankle_pitch_id, :]
+        
+        right_leg_delta0 = right_hip_pos - right_knee_pos
+        right_leg_delta1 = right_ankle_pos - right_knee_pos
+        right_leg_delta0 = right_leg_delta0 / torch.norm(right_leg_delta0, dim=-1, keepdim=True)
+        right_leg_delta1 = right_leg_delta1 / torch.norm(right_leg_delta1, dim=-1, keepdim=True)
+        right_knee_dot = torch.sum(-right_leg_delta0 * right_leg_delta1, dim=-1)
+        right_knee_dot = torch.clamp(right_knee_dot, -1.0, 1.0)
+        right_knee_theta = torch.acos(right_knee_dot)
+        right_knee_q = quat_from_angle_axis(torch.abs(right_knee_theta), 
+                                          torch.tensor(np.array([[0.0, 1.0, 0.0]]), 
+                                          device=device, dtype=torch.float32))
+        new_local_rotation[..., right_knee_id, :] = right_knee_q
+        
+    except Exception as e:
+        print(f"Warning: Leg projection failed for G1: {e}")
+    
+    # 3. 重置手腕和踝关节为单位四元数（可选）
+    try:
+        new_local_rotation[..., left_wrist_yaw_id, :] = quat_identity([1])
+        new_local_rotation[..., right_wrist_yaw_id, :] = quat_identity([1])
+        new_local_rotation[..., left_ankle_roll_id, :] = quat_identity([1])
+        new_local_rotation[..., right_ankle_roll_id, :] = quat_identity([1])
+    except:
+        pass
+    
+    # 创建新的运动状态
+    new_sk_state = SkeletonState.from_rotation_and_root_translation(
+        motion.skeleton_tree, new_local_rotation, motion.root_translation, is_local=True)
     new_motion = SkeletonMotion.from_skeleton_state(new_sk_state, fps=motion.fps)
-
+    
     return new_motion
