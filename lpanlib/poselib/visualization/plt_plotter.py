@@ -192,8 +192,17 @@ class Matplotlib2DPlotter(BasePlotter):
         self._draw()
 
     def _update_impl(self, task_list):
+        # ① 先把所有 artist 的位置数据更新
         for task in task_list:
             self._update_impl_callables[task.task_type](task)
+
+        # ② 收集每个任务（主要是 Draw3DSkeletonMotion）当前帧的关节坐标并更新坐标轴  # <<<
+        for task in task_list:                                                         # <<<
+            if hasattr(task, "get_joint_xyz"):                                         # <<<
+                xyz = task.get_joint_xyz()                                             # <<<
+                self._update_lim(xyz[:, 0], xyz[:, 1], xyz[:, 2])                      # <<<
+
+        # ③ 统一 redraw（_set_lim 会用 ② 更新的 min/max 来调坐标轴）
         self._draw()
 
     def _set_aspect_equal_2d(self, zero_centered=True):

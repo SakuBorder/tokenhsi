@@ -200,8 +200,14 @@ class SkeletonTree(Serializable):
         # recursively adding all nodes into the skel_tree
         def _add_xml_node(xml_node, parent_index, node_index):
             node_name = xml_node.attrib.get("name")
-            # parse the local translation into float list
-            pos = np.fromstring(xml_node.attrib.get("pos"), dtype=float, sep=" ")
+            # 修复：安全地处理pos属性，如果不存在则使用默认值[0, 0, 0]
+            pos_str = xml_node.attrib.get("pos")
+            if pos_str is not None:
+                pos = np.fromstring(pos_str, dtype=float, sep=" ")
+            else:
+                # 如果没有pos属性，使用默认位置 [0, 0, 0]
+                pos = np.array([0.0, 0.0, 0.0])
+                
             node_names.append(node_name)
             parent_indices.append(parent_index)
             local_translation.append(pos)
@@ -218,6 +224,431 @@ class SkeletonTree(Serializable):
             torch.from_numpy(np.array(parent_indices, dtype=np.int32)),
             torch.from_numpy(np.array(local_translation, dtype=np.float32)),
         )
+    
+
+
+    @classmethod
+    def from_mjcf_tai5_improved(cls, path: str, debug=True) -> "SkeletonTree":
+        """
+        改进版的TAI5解析函数，带有详细调试信息
+        """
+        import xml.etree.ElementTree as ET
+        import numpy as np
+        import torch
+        
+        if debug:
+            print("开始解析TAI5 MJCF文件...")
+        
+        # 定义TI5机器人body名称到标准关节的映射（按顺序）
+        target_joints = [
+            'base_link',          # 0: Pelvis
+            'WAIST_P_S',         # 1: Spine/Torso
+            'NECK_Y_S',          # 2: Head/Neck
+            'R_SHOULDER_P_S',    # 3: Right Shoulder
+            'R_ELBOW_Y_S',       # 4: Right Elbow
+            'R_WRIST_R_S',       # 5: Right Wrist/Hand
+            'L_SHOULDER_P_S',    # 6: Left Shoulder
+            'L_ELBOW_Y_S',       # 7: Left Elbow
+            'L_WRIST_R_S',       # 8: Left Wrist/Hand
+            'R_HIP_Y_S',         # 9: Right Hip
+            'R_KNEE_P_S',        # 10: Right Knee
+            'R_ANKLE_R_S',       # 11: Right Ankle/Foot
+            'L_HIP_Y_S',         # 12: Left Hip
+            'L_KNEE_P_S',        # 13: Left Knee
+            'L_ANKLE_R_S',       # 14: Left Ankle/Foot
+        ]
+        
+        tree = ET.parse(path)
+        xml_doc_root = tree.getroot()
+        xml_world_body = xml_doc_root.find("worldbody")
+        if xml_world_body is None:
+            raise ValueError("MJCF parsed incorrectly please verify it.")
+        
+        xml_body_root = xml_world_body.find("body")
+        if xml_body_root is None:
+            raise ValueError("MJCF parsed incorrectly please verify it.")
+
+        # 收集所有body信息
+        body_info = {}  # body_name -> (parent_body_name, local_translation)
+        all_bodies = []  # 记录所有找到的body
+        
+        def _collect_body_info(xml_node, parent_body_name=None, depth=0):
+            node_name = xml_node.attrib.get("name", "")
+            pos_str = xml_node.attrib.get("pos")
+            pos = np.fromstring(pos_str, dtype=float, sep=" ") if pos_str else np.array([0.0, 0.0, 0.0])
+            
+            if node_name:  # 只记录有名字的body
+                body_info[node_name] = (parent_body_name, pos)
+                all_bodies.append((depth, node_name, parent_body_name, pos))
+                if debug:
+                    print(f"{'  ' * depth}找到body: {node_name}, 父节点: {parent_body_name}, 位置: {pos}")
+            
+            # 递归处理子body
+            for child in xml_node.findall("body"):
+                _collect_body_info(child, node_name if node_name else parent_body_name, depth + 1)
+        
+        _collect_body_info(xml_body_root)
+        
+        if debug:
+            print(f"\n总共找到 {len(body_info)} 个body节点")
+            print("目标关节检查:")
+            for joint in target_joints:
+                if joint in body_info:
+                    parent, pos = body_info[joint]
+                    print(f"✅ {joint}: 父节点={parent}, 位置={pos}")
+                else:
+                    print(f"❌ {joint}: 未找到!")
+        
+        # 构建15个关节的骨架
+        node_names = []
+        parent_indices = []
+        local_translation = []
+        joint_to_index = {}
+        
+        for i, joint_name in enumerate(target_joints):
+            if joint_name not in body_info:
+                raise ValueError(f"Required joint {joint_name} not found in TI5 MJCF file.")
+            
+            parent_body_name, local_trans = body_info[joint_name]
+            node_names.append(joint_name)
+            local_translation.append(local_trans)
+            joint_to_index[joint_name] = i
+            
+            # 确定父关节索引
+            if parent_body_name is None or joint_name == 'base_link':
+                # 根节点
+                parent_indices.append(-1)
+                if debug:
+                    print(f"{i:2d}: {joint_name} -> 根节点")
+            else:
+                # 找到最近的目标关节作为父节点
+                current_parent = parent_body_name
+                parent_index = -1
+                search_path = [current_parent]
+                
+                # 向上搜索直到找到一个目标关节或到达根节点
+                while current_parent is not None:
+                    if current_parent in target_joints:
+                        if current_parent in joint_to_index:
+                            parent_index = joint_to_index[current_parent]
+                            break
+                        else:
+                            # 找到了目标关节但还没处理，这说明顺序有问题
+                            if debug:
+                                print(f"⚠️  {joint_name} 的父节点 {current_parent} 还未处理")
+                            break
+                    # 继续向上搜索
+                    if current_parent in body_info:
+                        current_parent, _ = body_info[current_parent]
+                        search_path.append(current_parent)
+                    else:
+                        current_parent = None
+                
+                parent_indices.append(parent_index)
+                if debug:
+                    print(f"{i:2d}: {joint_name} -> 父节点索引={parent_index} ({parent_body_name}), 搜索路径: {' -> '.join(filter(None, search_path))}")
+        
+        if debug:
+            print(f"\n最终骨架:")
+            print(f"节点名称: {node_names}")
+            print(f"父节点索引: {parent_indices}")
+            print(f"本地位移形状: {np.array(local_translation).shape}")
+        
+        return cls(
+            node_names,
+            torch.from_numpy(np.array(parent_indices, dtype=np.int32)),
+            torch.from_numpy(np.array(local_translation, dtype=np.float32)),
+        )
+
+    # 使用示例和测试
+    def test_tai5_parsing(xml_path):
+        print("="*60)
+        print("测试TAI5解析")
+        print("="*60)
+        
+        # 先用改进的函数解析
+        tai5_skeleton = SkeletonTree.from_mjcf_tai5_improved(xml_path, debug=True)
+        
+        # 创建T-pose并检查
+        tai5_tpose = SkeletonState.zero_pose(tai5_skeleton)
+        
+        print("\n" + "="*40)
+        print("T-pose 全局位置检查:")
+        print("="*40)
+        global_pos = tai5_tpose.global_translation.numpy()
+        for i, (name, pos) in enumerate(zip(tai5_skeleton.node_names, global_pos)):
+            print(f"{i:2d}: {name:<20} -> [{pos[0]:8.4f}, {pos[1]:8.4f}, {pos[2]:8.4f}]")
+        
+        # 检查关节距离
+        print("\n检查相邻关节距离:")
+        parent_indices = tai5_skeleton.parent_indices.numpy()
+        for i, parent_idx in enumerate(parent_indices):
+            if parent_idx >= 0:
+                distance = np.linalg.norm(global_pos[i] - global_pos[parent_idx])
+                print(f"{tai5_skeleton.node_names[parent_idx]} -> {tai5_skeleton.node_names[i]}: {distance:.6f}m")
+        
+        return tai5_skeleton, tai5_tpose
+
+
+    @classmethod
+    def from_mjcf_tai5(cls, path: str) -> "SkeletonTree":
+        """
+        解析TAI5机器人MJCF文件，返回15个关节的SkeletonTree
+        修正版：使用ANKLE_P_S而不是ANKLE_R_S，并正确处理根节点位置
+        """
+        import xml.etree.ElementTree as ET
+        import numpy as np
+        import torch
+        
+        # 选择正确的关节（使用ANKLE_P_S而不是ANKLE_R_S）
+        target_joints = [
+            'base_link',          # 0: Pelvis
+            'WAIST_Y_S',         # 1: Spine/Torso
+            'NECK_Y_S',          # 2: Head/Neck
+            'R_SHOULDER_P_S',    # 3: Right Shoulder
+            'R_ELBOW_Y_S',       # 4: Right Elbow
+            'R_WRIST_R_S',       # 5: Right Wrist/Hand
+            'L_SHOULDER_P_S',    # 6: Left Shoulder
+            'L_ELBOW_Y_S',       # 7: Left Elbow
+            'L_WRIST_R_S',       # 8: Left Wrist/Hand
+            'R_HIP_Y_S',         # 9: Right Hip
+            'R_KNEE_P_S',        # 10: Right Knee
+            'R_ANKLE_R_S',       # 11: Right Ankle (修正：使用P而不是R)
+            'L_HIP_Y_S',         # 12: Left Hip
+            'L_KNEE_P_S',        # 13: Left Knee
+            'L_ANKLE_R_S',       # 14: Left Ankle (修正：使用P而不是R)
+        ]
+        
+        tree = ET.parse(path)
+        xml_doc_root = tree.getroot()
+        xml_world_body = xml_doc_root.find("worldbody")
+        if xml_world_body is None:
+            raise ValueError("MJCF parsed incorrectly please verify it.")
+        
+        xml_body_root = xml_world_body.find("body")
+        if xml_body_root is None:
+            raise ValueError("MJCF parsed incorrectly please verify it.")
+
+        # 收集所有body信息，包括绝对位置计算
+        body_info = {}  # body_name -> (parent_body_name, local_translation, absolute_position)
+        
+        def _collect_body_info(xml_node, parent_body_name=None, parent_abs_pos=np.zeros(3)):
+            node_name = xml_node.attrib.get("name", "")
+            pos_str = xml_node.attrib.get("pos")
+            local_pos = np.fromstring(pos_str, dtype=float, sep=" ") if pos_str else np.array([0.0, 0.0, 0.0])
+            
+            # 计算绝对位置
+            abs_pos = parent_abs_pos + local_pos
+            
+            if node_name:
+                body_info[node_name] = (parent_body_name, local_pos, abs_pos)
+            
+            # 递归处理子body
+            for child in xml_node.findall("body"):
+                _collect_body_info(child, node_name if node_name else parent_body_name, abs_pos)
+        
+        _collect_body_info(xml_body_root)
+        
+        # 构建15个关节的骨架
+        node_names = []
+        parent_indices = []
+        local_translation = []
+        joint_to_index = {}
+        
+        for i, joint_name in enumerate(target_joints):
+            if joint_name not in body_info:
+                raise ValueError(f"Required joint {joint_name} not found in TI5 MJCF file.")
+            
+            parent_body_name, local_trans, abs_pos = body_info[joint_name]
+            node_names.append(joint_name)
+            joint_to_index[joint_name] = i
+            
+            # 处理父子关系和相对位移
+            if joint_name == 'base_link':
+                # 根节点：local_translation设为0，位置通过root_translation设置
+                parent_indices.append(-1)
+                local_translation.append([0.0, 0.0, 0.0])
+            else:
+                # 找到最近的目标关节作为父节点
+                current_parent = parent_body_name
+                parent_index = -1
+                
+                while current_parent is not None:
+                    if current_parent in target_joints and current_parent in joint_to_index:
+                        parent_index = joint_to_index[current_parent]
+                        break
+                    # 继续向上搜索
+                    if current_parent in body_info:
+                        current_parent, _, _ = body_info[current_parent]
+                    else:
+                        current_parent = None
+                
+                parent_indices.append(parent_index)
+                
+                # 计算相对于父关节的位移
+                if parent_index >= 0:
+                    parent_joint_name = target_joints[parent_index]
+                    _, _, parent_abs_pos = body_info[parent_joint_name]
+                    relative_pos = abs_pos - parent_abs_pos
+                    local_translation.append(relative_pos)
+                else:
+                    # 相对于根节点
+                    _, _, root_abs_pos = body_info['base_link']
+                    relative_pos = abs_pos - root_abs_pos
+                    local_translation.append(relative_pos)
+        
+        return cls(
+            node_names,
+            torch.from_numpy(np.array(parent_indices, dtype=np.int32)),
+            torch.from_numpy(np.array(local_translation, dtype=np.float32)),
+        )
+
+
+
+
+
+    def create_tai5_tpose_with_correct_root(tai5_skeleton):
+        """创建TAI5的T-pose，设置正确的根节点位置"""
+        # 设置正确的根节点高度（从MJCF中的base_link位置）
+        root_translation = torch.tensor([0.0, 0.0, 0.96], dtype=torch.float32)
+        
+        # 创建零姿态
+        zero_rotation = quat_identity([len(tai5_skeleton)])
+        
+        tai5_tpose = SkeletonState.from_rotation_and_root_translation(
+            skeleton_tree=tai5_skeleton,
+            r=zero_rotation,
+            t=root_translation,
+            is_local=True
+        )
+        
+        # 调整手臂为T-pose
+        local_rotation = tai5_tpose.local_rotation.clone()
+        
+        # 左肩膀向上90度
+        # if "L_SHOULDER_P_S" in tai5_skeleton.node_names:
+        #     left_shoulder_idx = tai5_skeleton.index("L_SHOULDER_P_S")
+        #     local_rotation[left_shoulder_idx] = quat_mul(
+        #         quat_from_angle_axis(angle=torch.tensor([90.0]), axis=torch.tensor([1.0, 0.0, 0.0]), degree=True), 
+        #         local_rotation[left_shoulder_idx]
+        #     )
+        
+        # # 右肩膀向下90度
+        # if "R_SHOULDER_P_S" in tai5_skeleton.node_names:
+        #     right_shoulder_idx = tai5_skeleton.index("R_SHOULDER_P_S")
+        #     local_rotation[right_shoulder_idx] = quat_mul(
+        #         quat_from_angle_axis(angle=torch.tensor([-90.0]), axis=torch.tensor([1.0, 0.0, 0.0]), degree=True), 
+        #         local_rotation[right_shoulder_idx]
+        #     )
+        
+        # 创建最终的T-pose
+        final_tpose = SkeletonState.from_rotation_and_root_translation(
+            skeleton_tree=tai5_skeleton,
+            r=local_rotation,
+            t=root_translation,
+            is_local=True
+        )
+        
+        return final_tpose
+
+    @classmethod
+    def from_mjcf_g1(cls, path: str, extend_head: bool = True) -> "SkeletonTree":
+        """
+        Parses a mujoco xml scene description file and returns a Skeleton Tree with a fixed number of joints.
+        Supports auto-addition of 'head' joint if not found in MJCF.
+        """
+        tree = ET.parse(path)
+        xml_doc_root = tree.getroot()
+        xml_world_body = xml_doc_root.find("worldbody")
+        if xml_world_body is None:
+            raise ValueError("MJCF parsed incorrectly please verify it.")
+        
+        xml_body_root = xml_world_body.find("body")
+        if xml_body_root is None:
+            raise ValueError("MJCF parsed incorrectly please verify it.")
+
+        target_joints = [
+            'pelvis', 'torso', 'head', 
+            'right_upper_arm', 'right_lower_arm', 'right_hand',
+            'left_upper_arm', 'left_lower_arm', 'left_hand',
+            'right_thigh', 'right_shin', 'right_foot',
+            'left_thigh', 'left_shin', 'left_foot'
+        ]
+        
+        body_to_joint_mapping = {
+            'pelvis': 'pelvis',
+            'torso_link': 'torso',
+            'head_link': 'head',
+            'left_hip_pitch_link': 'left_thigh', 
+            'left_knee_link': 'left_shin',
+            'left_ankle_pitch_link': 'left_foot',
+            'right_hip_pitch_link': 'right_thigh',
+            'right_knee_link': 'right_shin', 
+            'right_ankle_pitch_link': 'right_foot',
+            'left_shoulder_pitch_link': 'left_upper_arm',
+            'left_elbow_link': 'left_lower_arm',
+            'left_wrist_yaw_link': 'left_hand',
+            'right_shoulder_pitch_link': 'right_upper_arm',
+            'right_elbow_link': 'right_lower_arm',
+            'right_wrist_yaw_link': 'right_hand'
+        }
+
+        body_info = {}  # joint_name -> (parent_joint_name, local_translation)
+        torso_trans = None
+
+        def _collect_body_info(xml_node, parent_joint_name=None):
+            nonlocal torso_trans
+            node_name = xml_node.attrib.get("name", "")
+            pos_str = xml_node.attrib.get("pos")
+            pos = np.fromstring(pos_str, dtype=float, sep=" ") if pos_str else np.array([0.0, 0.0, 0.0])
+
+            current_joint_name = None
+            if node_name in body_to_joint_mapping:
+                current_joint_name = body_to_joint_mapping[node_name]
+                body_info[current_joint_name] = (parent_joint_name, pos)
+                if current_joint_name == "torso":
+                    torso_trans = pos
+
+            # 递归子 body
+            for child in xml_node.findall("body"):
+                _collect_body_info(child, current_joint_name or parent_joint_name)
+
+        _collect_body_info(xml_body_root)
+
+        # 如果缺少 head 且启用了补全
+        if "head" not in body_info and extend_head:
+            if "torso" not in body_info:
+                raise ValueError("Cannot create synthetic head without torso.")
+            torso_name, torso_offset = body_info["torso"]
+            synthetic_head_offset = np.array([0.0, 0.0, 0.45])  # 与 Humanoid_Batch 中一致
+            body_info["head"] = ("torso", synthetic_head_offset)
+
+        node_names = []
+        parent_indices = []
+        local_translation = []
+        joint_to_index = {}
+
+        for i, joint_name in enumerate(target_joints):
+            if joint_name not in body_info:
+                raise ValueError(f"Required joint {joint_name} not found in MJCF and not synthesized.")
+            parent_joint_name, local_trans = body_info[joint_name]
+            node_names.append(joint_name)
+            local_translation.append(local_trans)
+            joint_to_index[joint_name] = i
+
+            if parent_joint_name is None:
+                parent_indices.append(-1)
+            else:
+                if parent_joint_name not in joint_to_index:
+                    raise ValueError(f"Parent joint {parent_joint_name} not processed before {joint_name}")
+                parent_indices.append(joint_to_index[parent_joint_name])
+
+        return cls(
+            node_names,
+            torch.from_numpy(np.array(parent_indices, dtype=np.int32)),
+            torch.from_numpy(np.array(local_translation, dtype=np.float32)),
+        )
+
 
     def parent_of(self, node_name):
         """ get the name of the parent of the given node

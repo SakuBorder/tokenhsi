@@ -90,7 +90,6 @@ def plot_skeleton_motion(skeleton_motion, skip_n=1, task_name=""):
         plotter.update()
     plotter.show()
 
-
 def plot_skeleton_motion_interactive_base(skeleton_motion, task_name=""):
     class PlotParams:
         def __init__(self, total_num_frames):

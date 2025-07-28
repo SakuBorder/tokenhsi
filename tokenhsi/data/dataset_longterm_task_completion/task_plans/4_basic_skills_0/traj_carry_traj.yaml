@@ -1,0 +1,43 @@
+scene:
+  - name: box_to_carry
+    static: False
+    category: Box
+    model_id: box_length_0-50_0-50_0-70
+    pos3d: [4.5, -4.0, 0.35]
+    z_rot_angle: 0.0
+   
+  - name: wall
+    static: True
+    category: Obstacle
+    model_id: box_length_0-30_5-00_3-00
+    pos3d: [6, -3.25, 1.5]
+    z_rot_angle: 0
+
+traj:
+  0:  # 第一段：走向箱子
+    - [10.0, 4.0]
+    - [10.0, 2.0]
+    - [7.0, 0.0]
+    - [5.0, 0.0]
+    - [4.0, -1.0] 
+  
+  1:  # 第二段：从箱子放置位置出发
+    - [0.0, 0.0]      # 从carry目标位置开始
+    - [0.8, 0.8]      # 绕开原箱子位置
+    - [-2.0, 2.0]
+    - [-5.0, 5.0]
+
+tar_pos:
+  - [0.0, 0.0, 0.35]  # 箱子放置目标位置
+
+humanoid_init_pos2d: [10.0, 4.0]
+humanoid_init_rot_randomize: True
+
+# 任务计划：traj -> carry -> traj
+task_plan: ["traj", "carry", "traj"]
+tar_object: [0, 0, 0]        
+tar_traj: [0, 0, 1]          
+sample_target_from:
+  - "traj_0"    # 第一个traj：走向箱子
+  - "tarpos_0"  # carry：将箱子搬到目标位置
+  - "traj_1"    # 第二个traj：从放置位置继续前进

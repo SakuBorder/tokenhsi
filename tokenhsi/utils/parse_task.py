@@ -56,6 +56,10 @@ from env.tasks.adapt_interaction_skills.humanoid_adapt_carry_ground2terrain impo
 
 # long-horizon task completion
 from tokenhsi.env.tasks.longterm_task_completion.humanoid_longterm_4basicskills import HumanoidLongTerm4BasicSkills
+from tokenhsi.env.tasks.longterm_task_completion.humanoid_flexible_longterm import HumanoidFlexibleLongTerm
+
+from tokenhsi.env.tasks.transtion_skills.humanoid_state_transition_4skills_enhanced import HumanoidStateTransition4Skills
+# from tokenhsi.env.tasks.transtion_skills.humanoid_state_transtion_4skills import HumanoidStateTransition4Skills
 
 #########
 

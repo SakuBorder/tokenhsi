@@ -214,6 +214,7 @@ class ObjectLib():
         return
 
 class HumanoidLongTerm4BasicSkills(Humanoid):
+    NUM_TRAJ_SEGMENTS = 2 
     class StateInit(Enum):
         Default = 0
         Start = 1
@@ -253,7 +254,7 @@ class HumanoidLongTerm4BasicSkills(Humanoid):
         self.register_task_sit_pre_init(cfg)
         self.register_task_carry_pre_init(cfg)
         self.register_task_climb_pre_init(cfg)
-
+        self._num_traj_markers = self._num_traj_samples * self.NUM_TRAJ_SEGMENTS
         self._supported_tasks = cfg["env"]["supportedTasks"] # list of task names
         assert self._multiple_task_names == self._supported_tasks
         
@@ -346,6 +347,10 @@ class HumanoidLongTerm4BasicSkills(Humanoid):
         self._task_mask = torch.zeros([self.num_envs, self._num_tasks], device=self.device, dtype=torch.bool) # indicate which task is being performed via the format of one-hot
 
         self.register_task_traj_post_init(cfg)
+        # 显示两段轨迹的球
+        self.NUM_TRAJ_SEGMENTS = 2
+
+
         self.register_task_sit_post_init(cfg)
         self.register_task_carry_post_init(cfg)
         self.register_task_climb_post_init(cfg)
@@ -730,23 +735,60 @@ class HumanoidLongTerm4BasicSkills(Humanoid):
             return
 
     def _update_marker(self):
-        traj_samples = self._fetch_traj_samples()
+        # --------- 1. 轨迹采样（显示所有轨迹） ---------
+        
+        # 获取所有轨迹的samples
+        all_traj_samples = []
+        
+        # 为每个轨迹生成samples
+        for traj_id in range(len(self._plan["traj"])):
+            # 创建当前时间点
+            timestep_beg = (self.progress_buf - self._traj_begin_progress_buf) * self.dt
+            timesteps = torch.arange(self._num_traj_samples, device=self.device, dtype=torch.float) * self._traj_sample_timestep
+            traj_timesteps = timestep_beg.unsqueeze(-1) + timesteps
+            
+            # 为所有环境使用相同的轨迹ID
+            env_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long)
+            env_ids_tiled = torch.broadcast_to(env_ids.unsqueeze(-1), traj_timesteps.shape).flatten()
+            traj_ids_flat = torch.full_like(env_ids_tiled, traj_id)  # 所有环境都使用相同的轨迹ID
+            
+            samples_flat = self._traj_gen.calc_pos(traj_ids_flat, traj_timesteps.flatten())
+            samples = samples_flat.view(self.num_envs, self._num_traj_samples, -1)
+            all_traj_samples.append(samples)
+        
+        # 合并所有轨迹的samples
+        if len(all_traj_samples) > 1:
+            traj_samples = torch.cat(all_traj_samples, dim=1)  # [num_envs, total_samples, 3]
+        else:
+            traj_samples = all_traj_samples[0]
+
+        # --------- 2. 对齐 marker 数量 ---------
+        n_markers = self._traj_marker_pos.shape[1]
+        if traj_samples.shape[1] != n_markers:
+            if traj_samples.shape[1] > n_markers:
+                # 太多，裁掉
+                traj_samples = traj_samples[:, :n_markers, :]
+            else:
+                # 太少，填充最后一个点
+                pad = n_markers - traj_samples.shape[1]
+                pad_tensor = traj_samples[:, -1:, :].repeat(1, pad, 1)
+                traj_samples = torch.cat([traj_samples, pad_tensor], dim=1)
+
         self._traj_marker_pos[:] = traj_samples
         self._traj_marker_pos[..., 2] = self._char_h
 
-        ####### get tar pos
-
+        # --------- 3. 计算 tar_pos（原逻辑不变） ---------
         env_ids = torch.arange(0, self.num_envs, device=self.device)
         tar_pos = torch.zeros_like(self._humanoid_root_states[..., 0:3])
 
         sample_tar_from_sources = self._sample_target_from_source[self._task_exec_pointer[env_ids]]
-        sample_tar_from_ids = self._sample_target_from_id[self._task_exec_pointer[env_ids]]
+        sample_tar_from_ids     = self._sample_target_from_id[self._task_exec_pointer[env_ids]]
 
         mask = (sample_tar_from_sources == HumanoidLongTerm4BasicSkills.SampleFromUID.traj.value)
         if mask.sum() > 0:
-            traj_ids_flat = sample_tar_from_ids[mask]
-            traj_timesteps = torch.ones_like(traj_ids_flat) * torch.inf
-            tar_pos[mask] = self._traj_gen.calc_pos(traj_ids_flat, traj_timesteps.flatten())
+            traj_ids_flat   = sample_tar_from_ids[mask]
+            traj_timesteps  = torch.ones_like(traj_ids_flat) * torch.inf
+            tar_pos[mask]   = self._traj_gen.calc_pos(traj_ids_flat, traj_timesteps.flatten())
             tar_pos[mask, -1] = self._char_h
 
         mask = (sample_tar_from_sources == HumanoidLongTerm4BasicSkills.SampleFromUID.tarpos.value)
@@ -755,49 +797,55 @@ class HumanoidLongTerm4BasicSkills(Humanoid):
 
         mask = (sample_tar_from_sources == HumanoidLongTerm4BasicSkills.SampleFromUID.scene.value)
         if mask.sum() > 0:
-            oid = sample_tar_from_ids[mask]
-            task = self._task_exec_order_task_uid[self._task_exec_pointer[env_ids[mask]]]
-            masked_ids = env_ids[mask]
+            oid   = sample_tar_from_ids[mask]
+            task  = self._task_exec_order_task_uid[self._task_exec_pointer[env_ids[mask]]]
+            mids  = env_ids[mask]
 
             task_equal_sit = (task == HumanoidLongTerm4BasicSkills.TaskUID.sit.value)
             if task_equal_sit.sum() > 0:
-                curr_env_ids = masked_ids[task_equal_sit]
-                tar_pos[curr_env_ids] = self._obj_lib._obj_tar_sit_pos[oid[task_equal_sit]] + self._object_states[curr_env_ids, oid[task_equal_sit], 0:3]
-            
+                curr_env_ids = mids[task_equal_sit]
+                tar_pos[curr_env_ids] = self._obj_lib._obj_tar_sit_pos[oid[task_equal_sit]] + \
+                                        self._object_states[curr_env_ids, oid[task_equal_sit], 0:3]
+
             task_equal_climb = (task == HumanoidLongTerm4BasicSkills.TaskUID.climb.value)
             if task_equal_climb.sum() > 0:
-                curr_env_ids = masked_ids[task_equal_climb]
-                tar_pos[curr_env_ids] = self._obj_lib._obj_tar_climb_pos[oid[task_equal_climb]] + self._object_states[curr_env_ids, oid[task_equal_climb], 0:3]
+                curr_env_ids = mids[task_equal_climb]
+                tar_pos[curr_env_ids] = self._obj_lib._obj_tar_climb_pos[oid[task_equal_climb]] + \
+                                        self._object_states[curr_env_ids, oid[task_equal_climb], 0:3]
                 tar_pos[curr_env_ids, 2] += self._char_h
-        
-        self._marker_pos[:] = tar_pos # 3d xyz
 
-        actor_ids = torch.cat([self._traj_marker_actor_ids, self._marker_actor_ids, self._object_actor_ids,], dim=0)
+        self._marker_pos[:] = tar_pos  # 3d xyz
 
-        if self._use_height_map:
-            if self._viz_height_map and (not self.headless):
+        # --------- 4. Height map markers（原逻辑不变） ---------
+        actor_ids = torch.cat([self._traj_marker_actor_ids, self._marker_actor_ids, self._object_actor_ids], dim=0)
 
-                # draw humanoid_height_sensors
+        if self._use_height_map and self._viz_height_map and (not self.headless):
+            num_markers = self._height_map_sensor_num_grid_points
+            root_rot_xy = torch_utils.calc_heading_quat(self._humanoid_root_states[..., 3:7])
+            root_rot_xy_exp = torch.broadcast_to(root_rot_xy.unsqueeze(1),
+                                                (root_rot_xy.shape[0], num_markers, root_rot_xy.shape[1]))
+            grid = quat_rotate(root_rot_xy_exp.reshape(-1, 4), self._humanoid_height_sensors.reshape(-1, 3))
+            grid = grid.reshape(-1, num_markers, 3)
+            grid += self._humanoid_root_states[..., 0:3].unsqueeze(1)
+            grid[..., -1] = self._humanoid_height_values
 
-                # humanoid local space to world space
-                num_markers = self._height_map_sensor_num_grid_points
-                root_rot_xy = torch_utils.calc_heading_quat(self._humanoid_root_states[..., 3:7])
-                root_rot_xy_exp = torch.broadcast_to(root_rot_xy.unsqueeze(1), (root_rot_xy.shape[0], num_markers, root_rot_xy.shape[1]))
-                grid = quat_rotate(root_rot_xy_exp.reshape(-1, 4), self._humanoid_height_sensors.reshape(-1, 3))
-                grid = grid.reshape(-1, num_markers, 3)
-                grid += self._humanoid_root_states[..., 0:3].unsqueeze(1)
-                grid[..., -1] = self._humanoid_height_values
+            self._height_map_marker_pos[:] = grid
 
-                self._height_map_marker_pos[:] = grid
+            actor_ids = torch.cat([actor_ids, self._height_map_marker_actor_ids], dim=0)
 
-                actor_ids = torch.cat([actor_ids, self._height_map_marker_actor_ids], dim=0)
-       
-        self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(self._root_states),
-                                                     gymtorch.unwrap_tensor(actor_ids), len(actor_ids))
+        # --------- 5. 提交到 sim ---------
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._root_states),
+            gymtorch.unwrap_tensor(actor_ids),
+            len(actor_ids)
+        )
         return
+
     
     def _create_envs(self, num_envs, spacing, num_per_row):
         if (not self.headless):
+            self.NUM_TRAJ_SEGMENTS = 2
             self._traj_marker_handles = [[] for _ in range(self.num_envs)]
             if self._use_height_map:
                 if self._viz_height_map:
@@ -878,41 +926,43 @@ class HumanoidLongTerm4BasicSkills(Humanoid):
         segmentation_id = 0
         default_pose = gymapi.Transform()
 
-        # traj markers
-        for i in range(self._num_traj_samples):
+        # ---------- 轨迹红球 ----------
+        # 每段轨迹各放 self._num_traj_samples 个 marker
+        for seg in range(self.NUM_TRAJ_SEGMENTS):
+            for _ in range(self._num_traj_samples):
+                h = self.gym.create_actor(env_ptr, self._marker_asset, default_pose,
+                                        "marker", col_group, col_filter, segmentation_id)
+                self.gym.set_actor_scale(env_ptr, h, 0.5)
+                self.gym.set_rigid_body_color(env_ptr, h, 0,
+                                            gymapi.MESH_VISUAL,
+                                            gymapi.Vec3(1.0, 0.0, 0.0))  # 红色
+                # 按 env 存
+                self._traj_marker_handles[env_id].append(h)
 
-            marker_handle = self.gym.create_actor(env_ptr, self._marker_asset, default_pose, "marker", col_group, col_filter, segmentation_id)
-            self.gym.set_actor_scale(env_ptr, marker_handle, 0.5)
-            self.gym.set_rigid_body_color(env_ptr, marker_handle, 0,
-                                          gymapi.MESH_VISUAL,
-                                          gymapi.Vec3(1.0, 0.0, 0.0))
-            self._traj_marker_handles[env_id].append(marker_handle)
-        
-        if self._use_height_map:
-            if self._viz_height_map and (not self.headless):
-                ##### marker to indicate circle height map
-                for i in range(self._height_map_sensor_num_grid_points):
-                    
-                    num_points_each_line = self._cube_side_num_points
+        # ---------- Height Map markers ----------
+        if self._use_height_map and self._viz_height_map and (not self.headless):
+            num_points = self._height_map_sensor_num_grid_points
+            num_points_each_line = self._cube_side_num_points
 
-                    if i in [n for n in range(0, num_points_each_line)]:
-                        color = gymapi.Vec3(0.0, 0.0, 1.0)
-                    else:
-                        color = gymapi.Vec3(0.0, 1.0, 0.0)
+            for i in range(num_points):
+                if i in range(0, num_points_each_line):
+                    color = gymapi.Vec3(0.0, 0.0, 1.0)  # 第一行用蓝色示意
+                else:
+                    color = gymapi.Vec3(0.0, 1.0, 0.0)  # 其余绿色
 
-                    marker_handle = self.gym.create_actor(env_ptr, self._marker_asset, default_pose, "marker", col_group, col_filter, segmentation_id)
-                    self.gym.set_actor_scale(env_ptr, marker_handle, 0.2)
-                    self.gym.set_rigid_body_color(env_ptr, marker_handle, 0,
-                                                gymapi.MESH_VISUAL,
-                                                color)
-                    self._height_map_marker_handles[env_id].append(marker_handle)
-        
-        marker_handle = self.gym.create_actor(env_ptr, self._marker_asset, default_pose, "marker", col_group, col_filter, segmentation_id)
-        self.gym.set_rigid_body_color(env_ptr, marker_handle, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.0, 0.0))
-        self.gym.set_actor_scale(env_ptr, marker_handle, 0.5)
-        self._marker_handles.append(marker_handle)
+                h = self.gym.create_actor(env_ptr, self._marker_asset, default_pose,
+                                        "marker", col_group, col_filter, segmentation_id)
+                self.gym.set_actor_scale(env_ptr, h, 0.2)
+                self.gym.set_rigid_body_color(env_ptr, h, 0, gymapi.MESH_VISUAL, color)
+                self._height_map_marker_handles[env_id].append(h)
 
-        return
+        # ---------- 单个目标 marker ----------
+        h = self.gym.create_actor(env_ptr, self._marker_asset, default_pose,
+                                "marker", col_group, col_filter, segmentation_id)
+        self.gym.set_rigid_body_color(env_ptr, h, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.8, 0.0, 0.0))
+        self.gym.set_actor_scale(env_ptr, h, 0.5)
+        self._marker_handles.append(h)
+
     
     def _build_object(self, env_id, env_ptr):
         col_group = env_id
@@ -1325,7 +1375,13 @@ class HumanoidLongTerm4BasicSkills(Humanoid):
             for i, env_ptr in enumerate(self.envs):
 
                 # traj
-                verts = self._traj_gen.get_traj_verts(self._task_exec_order_tar_traj[self._task_exec_pointer[i]])
+                # verts = self._traj_gen.get_traj_verts(self._task_exec_order_tar_traj[self._task_exec_pointer[i]])
+                for tid, traj in self._plan["traj"].items():
+                    verts = self._traj_gen.get_traj_verts(tid)
+                    verts[..., 2] = self._char_h
+                    lines = torch.cat([verts[:-1], verts[1:]], dim=-1).cpu().numpy()
+                    cols = np.broadcast_to(np.array([[0.0, 0.0, 1.0]], dtype=np.float32), (lines.shape[0], 3))
+                    self.gym.add_lines(self.viewer, env_ptr, lines.shape[0], lines, cols)
                 verts[..., 2] = self._char_h
                 lines = torch.cat([verts[:-1], verts[1:]], dim=-1).cpu().numpy()
                 curr_cols = np.broadcast_to(traj_cols, [lines.shape[0], traj_cols.shape[-1]])
@@ -1487,9 +1543,9 @@ class HumanoidLongTerm4BasicSkills(Humanoid):
         asset_file = self.cfg["env"]["asset"]["assetFileName"]
         num_key_bodies = len(key_bodies)
 
-        if (asset_file == "mjcf/amp_humanoid.xml"):
+        if (asset_file == "mjcf/humanoid/amp_humanoid.xml"):
             self._num_amp_obs_per_step = 13 + self._dof_obs_size + 28 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
-        elif (asset_file == "mjcf/phys_humanoid.xml") or (asset_file == "mjcf/phys_humanoid_v2.xml") or (asset_file == "mjcf/phys_humanoid_v3.xml"):
+        elif (asset_file == "mjcf/humanoid/phys_humanoid.xml") or (asset_file == "mjcf/humanoid/phys_humanoid_v2.xml") or (asset_file == "mjcf/humanoid/phys_humanoid_v3.xml"):
             self._num_amp_obs_per_step = 13 + self._dof_obs_size + 28 + 2 * 2 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
         else:
             print("Unsupported character config file: {s}".format(asset_file))

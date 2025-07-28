@@ -53,6 +53,7 @@ from learning.transformer import amp_network_builder_transformer_longterm
 
 from learning.transformer import trans_agent
 from learning.transformer import trans_players
+import ipdb
 
 args = None
 cfg = None
@@ -221,7 +222,7 @@ def main():
     vargs = vars(args)
 
     algo_observer = RLGPUAlgoObserver()
-
+    # ipdb.set_trace() # runner.__dict__
     runner = build_alg_runner(algo_observer)
     runner.load(cfg_train)
     runner.reset()

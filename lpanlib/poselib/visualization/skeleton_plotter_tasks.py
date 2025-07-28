@@ -155,6 +155,13 @@ class Draw3DSkeletonMotion(BasePlotterTask):
     def name(self):
         return "3DSkeletonMotion"
 
+    def get_joint_xyz(self):
+        """
+        返回当前帧所有关节的 (N,3) ndarray，供 Plotter 自动缩放坐标轴使用
+        """
+        frame_xyz = self.skeleton_motion.global_translation[self.frame_index]
+        return frame_xyz.cpu().numpy()            # 如果已经是 numpy，就直接 return
+
     def update(self, frame_index=None, reset_trail=False, skeleton_motion=None) -> None:
         if skeleton_motion is not None:
             self._skeleton_motion = skeleton_motion

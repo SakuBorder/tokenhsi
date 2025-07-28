@@ -124,7 +124,9 @@ class MotionLib():
         self.length_starts = lengths_shifted.cumsum(0)
 
         self.motion_ids = torch.arange(len(self._motions), dtype=torch.long, device=self._device)
-
+        self.isaac_gym_joint_mapping = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 
+                               18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+        self.sign_flip_set = {2,4,6,7,8,9}
         return
 
     def num_motions(self):
@@ -189,6 +191,22 @@ class MotionLib():
     def get_motion_length(self, motion_ids):
         return self._motion_lengths[motion_ids]
 
+    def apply_isaac_gym_joint_mapping(self, dof_pos):
+
+        mapped_dof = torch.zeros_like(dof_pos)
+
+
+        for i, mapping_idx in enumerate(self.isaac_gym_joint_mapping):
+            if i < mapped_dof.shape[-1] and mapping_idx < dof_pos.shape[-1]:
+                val = dof_pos[:, mapping_idx]         
+
+                # 这里是反向操作的关键
+                if i in self.sign_flip_set:
+                    val = -val  # 对特定关节进行符号翻转
+
+                mapped_dof[:, i] = val               
+            return mapped_dof
+
     def get_motion_state(self, motion_ids, motion_times):
         n = len(motion_ids)
         num_bodies = self._get_num_bodies()
@@ -238,6 +256,13 @@ class MotionLib():
         
         local_rot = torch_utils.slerp(local_rot0, local_rot1, torch.unsqueeze(blend, axis=-1))
         dof_pos = self._local_rotation_to_dof(local_rot)
+
+
+        dof_pos = self.apply_isaac_gym_joint_mapping(dof_pos)
+            # if flip_idx < dof_pos.shape[-1]:
+            #     dof_pos[:, flip_idx] = -dof_pos[:, flip_idx]
+            # if flip_idx < dof_vel.shape[-1]:
+            #     dof_vel[:, flip_idx] = -dof_vel[:, flip_idx]
 
         return root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos
     
@@ -442,6 +467,10 @@ class MotionLib():
                 joint_q = local_rot[:, body_id]
                 joint_exp_map = torch_utils.quat_to_exp_map(joint_q)
                 dof_pos[:, joint_offset:(joint_offset + joint_size)] = joint_exp_map
+            elif (joint_size == 2):
+                joint_q = local_rot[:, body_id]
+                joint_exp_map = torch_utils.quat_to_exp_map(joint_q)
+                dof_pos[:, joint_offset:(joint_offset + joint_size)] = joint_exp_map[:, :2]
             elif (joint_size == 1):
                 joint_q = local_rot[:, body_id]
                 joint_theta, joint_axis = torch_utils.quat_to_angle_axis(joint_q)
@@ -475,7 +504,9 @@ class MotionLib():
             if (joint_size == 3):
                 joint_vel = local_vel[body_id]
                 dof_vel[joint_offset:(joint_offset + joint_size)] = joint_vel
-
+            elif (joint_size == 2):
+                joint_vel = local_vel[body_id]
+                dof_vel[joint_offset:(joint_offset + joint_size)] = joint_vel[:2]
             elif (joint_size == 1):
                 assert(joint_size == 1)
                 joint_vel = local_vel[body_id]

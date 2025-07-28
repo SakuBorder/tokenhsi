@@ -3,7 +3,8 @@ params:
 
   algo:
     name: trans
-
+  config:
+    algorithm: trans   # 添加这一行，确保 Runner 能读到
   model:
     name: amp
 

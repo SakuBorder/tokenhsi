@@ -1,0 +1,81 @@
+env: 
+  numEnvs: 64
+  envSpacing: 5
+  episodeLength: 600  # 20秒总时长
+  enableDebugVis: True
+  
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2
+  stateInit: "Default"
+  hybridInitProb: 0.8
+  numAMPObsSteps: 10
+
+  localRootObs: True
+  rootHeightObs: False
+  keyBodies: ["right_hand", "left_hand", "right_foot", "left_foot"]
+  contactBodies: ["right_foot", "left_foot"]
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+  enableSelfCollisionDetection: True
+  
+  # 状态转移测试配置
+  sourceSkillDuration: 8.0    
+  transitionDuration: 4.0       
+  targetSkillDuration: 8.0    
+  
+  # 评估模式下保存转移质量数据
+  enableTransitionEvaluation: True
+  saveTransitionMetrics: True
+  
+  # 支持的技能列表
+  skill: [
+    "loco",           
+    "loco_sit", "sit", 
+    "loco_carry", "omomo", "pickUp", "carryWith", "putDown", 
+    "loco_climb", "climb", "climbNoRSI"
+  ]
+  
+  # 任务配置
+  enableTaskObs: True
+  enableTaskMaskObs: True
+  supportedTasks: ["traj", "sit", "carry", "climb"]
+
+  # 简化的任务配置用于测试
+  traj:
+    numTrajSamples: 5
+    trajSampleTimestep: 0.5
+    speedMin: 1.0
+    speedMax: 1.2
+    skill: ["loco"]
+  
+  sit:
+    skill: ["loco_sit", "sit"]
+
+  climb:
+    skill: ["loco_climb", "climb", "climbNoRSI"]
+
+  carry:
+    skill: ["loco_carry", "pickUp", "carryWith", "putDown"]
+
+  asset:
+    assetRoot: "tokenhsi/data/assets"
+    assetFileName: "mjcf/phys_humanoid_v3.xml"
+
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 10.0

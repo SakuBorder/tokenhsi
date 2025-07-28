@@ -1,0 +1,140 @@
+# tokenhsi/data/cfg/longterm_task_completion/amp_humanoid_flexible_longterm_patched.yaml
+
+env: 
+  numEnvs: 8
+  envSpacing: 5
+  episodeLength: 1800  # 60秒
+  enableDebugVis: False
+  
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2
+  stateInit: "Default"
+  hybridInitProb: 0.8
+  numAMPObsSteps: 10
+
+  localRootObs: True
+  localRootObsPolicy: False
+  rootHeightObs: False
+  rootHeightObsPolicy: False
+  keyBodies: ["right_hand", "left_hand", "right_foot", "left_foot"]
+  contactBodies: ["right_foot", "left_foot"]
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+
+  enableSelfCollisionDetection: True
+  
+  # 必须的任务计划配置（修复AssertionError）
+  task_plan: ["traj", "sit", "carry", "climb"]
+  tar_object: [0, 0, 0, 0]  # 占位符，灵活长技能会动态使用
+  tar_traj: [0, 0, 0, 0]    # 占位符
+  tar_pos: [
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0], 
+    [0.0, 0.0, 0.0],
+    [0.0, 0.0, 0.0]
+  ]
+  sample_target_from: ["traj_0", "scene_0", "tarpos_0", "scene_0"]
+  humanoid_init_pos2d: [0.0, 0.0]
+  
+  # 长技能转移配置
+  maxTransitionSteps: 200
+  maxTransitionStepsDemo: 100
+  successThreshold: 1.0
+  enableIET: True
+  maxIETSteps: 50
+  enableDynObjBUGReset: False
+  enableDynObjFallTermination: False
+  enableDynObjUpfacingTermination: False
+  enableDynObjUpfacingRwd: False
+  
+  # 灵活长技能特定配置
+  skillExecutionTime: 10.0
+  transitionTime: 2.0
+  enableRandomSequences: True
+  enableStateTransition: True
+  
+  minSequenceLength: 2
+  maxSequenceLength: 4
+  
+  predefinedSequences: [
+    [0, 1, 2, 3],    # traj -> sit -> carry -> climb
+    [3, 2, 1, 0],    # climb -> carry -> sit -> traj  
+    [0, 2, 1, 3],    # traj -> carry -> sit -> climb
+    [1, 3, 0, 2],    # sit -> climb -> traj -> carry
+  ]
+  
+  # 支持的技能列表
+  skill: [
+    "loco",           # 0: traj
+    "loco_sit", "sit", # 1: sit
+    "loco_carry", "omomo", "pickUp", "carryWith", "putDown", # 2: carry  
+    "loco_climb", "climb", "climbNoRSI"  # 3: climb
+  ]
+  
+  skillDiscProb: [
+    0.1,
+    0.1, 0.2,
+    0.1, 0.1, 0.05, 0.0, 0.05,
+    0.1, 0.1, 0.1,
+  ]
+  
+  # 任务配置
+  enableTaskObs: True
+  enableTaskMaskObs: True
+  enableApplyMaskOnTaskObs: True
+  supportedTasks: ["traj", "sit", "carry", "climb"]
+
+  # 各技能的具体配置
+  traj:
+    numTrajSamples: 10
+    trajSampleTimestep: 0.5
+    speedMin: 1.4
+    speedMax: 1.5
+    accelMax: 2.0
+    sharpTurnProb: 0.02
+    sharpTurnAngle: 1.57
+    failDist: 4.0
+    enableExtendedTraj: True
+    extendDist: 0.5
+    skill: ["loco"]
+  
+  sit:
+    skill: ["loco_sit", "sit"]
+
+  climb:
+    skill: ["loco_climb", "climb", "climbNoRSI"]
+
+  carry:
+    onlyVelReward: True
+    onlyHeightHandHeldReward: True
+    box_vel_penalty: False
+    box_vel_pen_coeff: 1.0
+    box_vel_pen_threshold: 1.5
+    skill: ["loco_carry", "pickUp", "carryWith", "putDown", "omomo"]
+
+  # 功率奖励
+  power_reward: True
+  power_coefficient: 0.0005
+
+  asset:
+    assetRoot: "tokenhsi/data/assets"
+    assetFileName: "mjcf/phys_humanoid_v3.xml"
+
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 10.0

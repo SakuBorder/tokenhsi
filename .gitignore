@@ -165,3 +165,14 @@ cython_debug/
 /tokenhsi/data/dataset_amass_climb/objects/
 /tokenhsi/data/dataset_dynamic_objects/test/
 /tokenhsi/data/dataset_dynamic_objects/train/
+/data/
+/data_n/
+/isaacgym/
+/legged_gym/
+/pytorch3d/
+/rsl_rl/
+/wandb/
+/tokenhsi/data/assets/
+/tokenhsi/data/dataset_carry/motions/
+/body_models/
+/home/dy/dy/code/tokenhsi/assets/

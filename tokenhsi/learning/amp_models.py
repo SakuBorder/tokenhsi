@@ -25,7 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+import torch
 import torch.nn as nn
 from rl_games.algos_torch.models import ModelA2CContinuousLogStd
 
@@ -43,13 +43,18 @@ class ModelAMPContinuous(ModelA2CContinuousLogStd):
     class Network(ModelA2CContinuousLogStd.Network):
         def __init__(self, a2c_network):
             super().__init__(a2c_network)
+            self.step_count = 0
+            self.loss_history = []
             return
 
         def forward(self, input_dict):
             is_train = input_dict.get('is_train', True)
             result = super().forward(input_dict)
 
-            if (is_train):
+            if is_train:
+                self.step_count += 1
+                
+                # AMP相关的判别器输出
                 amp_obs = input_dict['amp_obs']
                 disc_agent_logit = self.a2c_network.eval_disc(amp_obs)
                 result["disc_agent_logit"] = disc_agent_logit
@@ -62,4 +67,26 @@ class ModelAMPContinuous(ModelA2CContinuousLogStd):
                 disc_demo_logit = self.a2c_network.eval_disc(amp_demo_obs)
                 result["disc_demo_logit"] = disc_demo_logit
 
+                # 每100步监控一次判别器输出
+                if self.step_count % 100 == 0:
+                    self._monitor_discriminator_outputs(
+                        disc_agent_logit, disc_agent_replay_logit, disc_demo_logit
+                    )
+
             return result
+
+        def _monitor_discriminator_outputs(self, agent_logit, replay_logit, demo_logit):
+            """监控判别器输出分布"""
+            print(f"\n=== Step {self.step_count} Discriminator Monitor ===")
+            print(f"Agent logits - mean: {agent_logit.mean().item():.4f}, std: {agent_logit.std().item():.4f}")
+            print(f"Replay logits - mean: {replay_logit.mean().item():.4f}, std: {replay_logit.std().item():.4f}")
+            print(f"Demo logits - mean: {demo_logit.mean().item():.4f}, std: {demo_logit.std().item():.4f}")
+            
+            # 检查是否存在异常值
+            if torch.isnan(agent_logit).any() or torch.isinf(agent_logit).any():
+                print("WARNING: NaN or Inf detected in agent logits!")
+            if torch.isnan(replay_logit).any() or torch.isinf(replay_logit).any():
+                print("WARNING: NaN or Inf detected in replay logits!")
+            if torch.isnan(demo_logit).any() or torch.isinf(demo_logit).any():
+                print("WARNING: NaN or Inf detected in demo logits!")
+

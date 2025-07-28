@@ -49,7 +49,8 @@ from tensorboardX import SummaryWriter
 class AMPAgent(common_agent.CommonAgent):
     def __init__(self, base_name, config):
         super().__init__(base_name, config)
-
+        self.gradient_monitor_step = 0
+        self.gradient_log_interval = 100  # 每100步记录一次
         if hasattr(self.vec_env.env.task, '_multiple_task_names'):
             self.multi_task_rwd_recoders = {}
             for n in self.vec_env.env.task._multiple_task_names:
@@ -415,8 +416,10 @@ class AMPAgent(common_agent.CommonAgent):
             else:
                 for param in self.model.parameters():
                     param.grad = None
+        self._monitor_loss_before_backward(a_loss, c_loss, disc_loss, advantage)
 
         self.scaler.scale(loss).backward()
+        self._monitor_gradients_after_backward()
         #TODO: Refactor this ugliest code of the year
         if self.truncate_grads:
             if self.multi_gpu:
@@ -453,6 +456,108 @@ class AMPAgent(common_agent.CommonAgent):
         self.train_result.update(disc_info)
 
         return
+
+    def _monitor_loss_before_backward(self, a_loss, c_loss, disc_loss, advantage):
+        """在反向传播前监控损失和优势"""
+        if self.gradient_monitor_step % self.gradient_log_interval == 0:
+            print(f"\n=== Loss Monitor (Step {self.gradient_monitor_step}) ===")
+            print(f"Actor Loss: {a_loss.item():.6f}")
+            print(f"Critic Loss: {c_loss.item():.6f}")
+            print(f"Disc Loss: {disc_loss.item():.6f}")
+            print(f"Advantage - mean: {advantage.mean().item():.6f}, std: {advantage.std().item():.6f}")
+            print(f"Advantage - min: {advantage.min().item():.6f}, max: {advantage.max().item():.6f}")
+            
+            # 检查优势值是否异常
+            if torch.abs(advantage.mean()) > 10.0:
+                print("⚠️  WARNING: 优势值异常大!")
+            if advantage.std() < 0.01:
+                print("⚠️  WARNING: 优势值方差太小!")
+
+    def _monitor_gradients_after_backward(self):
+        """在反向传播后监控梯度"""
+        if self.gradient_monitor_step % self.gradient_log_interval == 0:
+            print(f"\n=== Gradient Monitor (Step {self.gradient_monitor_step}) ===")
+            
+            # 监控Actor网络梯度
+            actor_grad_norm = 0.0
+            actor_param_count = 0
+            
+            # 监控Critic网络梯度  
+            critic_grad_norm = 0.0
+            critic_param_count = 0
+            
+            # 监控Discriminator梯度
+            disc_grad_norm = 0.0
+            disc_param_count = 0
+            
+            for name, param in self.model.named_parameters():
+                if param.grad is not None:
+                    param_norm = param.grad.data.norm(2).item()
+                    
+                    if 'actor' in name.lower() or 'mu' in name.lower() or 'sigma' in name.lower():
+                        actor_grad_norm += param_norm ** 2
+                        actor_param_count += 1
+                        
+                    elif 'critic' in name.lower() or 'value' in name.lower():
+                        critic_grad_norm += param_norm ** 2
+                        critic_param_count += 1
+                        
+                    elif 'disc' in name.lower():
+                        disc_grad_norm += param_norm ** 2
+                        disc_param_count += 1
+                        
+                    # 检查异常梯度
+                    if param_norm > 10.0:
+                        print(f"⚠️  Large gradient in {name}: {param_norm:.6f}")
+                    elif param_norm < 1e-8:
+                        print(f"⚠️  Very small gradient in {name}: {param_norm:.8f}")
+                else:
+                    print(f"❌ No gradient for {name}")
+            
+            # 计算各网络的总梯度范数
+            actor_grad_norm = (actor_grad_norm ** 0.5) if actor_param_count > 0 else 0.0
+            critic_grad_norm = (critic_grad_norm ** 0.5) if critic_param_count > 0 else 0.0
+            disc_grad_norm = (disc_grad_norm ** 0.5) if disc_param_count > 0 else 0.0
+            
+            print(f"Actor梯度范数: {actor_grad_norm:.6f} ({actor_param_count} params)")
+            print(f"Critic梯度范数: {critic_grad_norm:.6f} ({critic_param_count} params)")
+            print(f"Discriminator梯度范数: {disc_grad_norm:.6f} ({disc_param_count} params)")
+            
+            # 🎯 关键指标：策略梯度健康状态
+            if actor_grad_norm < 1e-6:
+                print("🚨 CRITICAL: Actor梯度几乎为零 - 策略可能停止学习!")
+            elif actor_grad_norm > 10.0:
+                print("⚠️  WARNING: Actor梯度过大 - 可能导致不稳定!")
+            else:
+                print("✅ Actor梯度范数正常")
+                
+            # 检查梯度比例
+            if disc_grad_norm > 0 and actor_grad_norm > 0:
+                grad_ratio = disc_grad_norm / actor_grad_norm
+                print(f"Disc/Actor梯度比例: {grad_ratio:.3f}")
+                if grad_ratio > 10.0:
+                    print("⚠️  判别器梯度远大于Actor梯度!")
+                elif grad_ratio < 0.1:
+                    print("⚠️  Actor梯度远大于判别器梯度!")
+
+    def _monitor_policy_gradient_components(self, advantage, action_log_probs, old_action_log_probs):
+        """监控策略梯度的各个组成部分"""
+        if self.gradient_monitor_step % (self.gradient_log_interval * 2) == 0:
+            print(f"\n=== Policy Gradient Components (Step {self.gradient_monitor_step}) ===")
+            
+            # 计算重要性采样比例
+            ratio = torch.exp(old_action_log_probs - action_log_probs)
+            print(f"重要性采样比例 - mean: {ratio.mean().item():.6f}, std: {ratio.std().item():.6f}")
+            print(f"重要性采样比例 - min: {ratio.min().item():.6f}, max: {ratio.max().item():.6f}")
+            
+            # 检查比例是否在合理范围内
+            clipped_ratio_count = torch.sum((ratio > 1.2) | (ratio < 0.8)).item()
+            total_count = ratio.numel()
+            clipped_percentage = clipped_ratio_count / total_count * 100
+            print(f"超出[0.8, 1.2]范围的比例: {clipped_percentage:.1f}%")
+            
+            if clipped_percentage > 50:
+                print("⚠️  WARNING: 过多的重要性采样比例超出合理范围!")
 
     def _load_config_params(self, config):
         super()._load_config_params(config)
@@ -700,5 +805,5 @@ class AMPAgent(common_agent.CommonAgent):
 
             disc_pred = disc_pred.detach().cpu().numpy()[0, 0]
             disc_reward = disc_reward.cpu().numpy()[0, 0]
-            print("disc_pred: ", disc_pred, disc_reward)
+            # print("disc_pred: ", disc_pred, disc_reward)
         return

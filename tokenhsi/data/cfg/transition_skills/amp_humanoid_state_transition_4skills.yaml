@@ -1,0 +1,205 @@
+# tokenhsi/data/cfg/transition_skills/amp_humanoid_state_transition_4skills.yaml
+
+env: 
+  numEnvs: 512
+  envSpacing: 5
+  episodeLength: 600  # 20秒总时长，包含完整的转移循环
+  episodeLengthShort: 300
+  isFlagrun: False
+  enableDebugVis: False
+  
+  # 必需的基础配置
+  mode: "train"  # 训练模式
+  
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2  # 30 Hz
+  stateInit: "Random"
+  hybridInitProb: 0.5
+  numAMPObsSteps: 10
+
+  localRootObs: True
+  localRootObsPolicy: False
+  rootHeightObs: False
+  rootHeightObsPolicy: False
+  keyBodies: ["right_hand", "left_hand", "right_foot", "left_foot"]
+  contactBodies: ["right_foot", "left_foot"]
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+
+  enableSelfCollisionDetection: True
+  enableTrackInitState: False
+  
+  # 状态转移特定配置
+  sourceSkillDuration: 8.0    # 源技能执行时间（秒）
+  transitionDuration: 4.0     # 状态转移时间（秒）  
+  targetSkillDuration: 8.0    # 目标技能执行时间（秒）
+  
+  # 转移奖励权重
+  transitionRewardWeights:
+    source_skill: 0.3      # 源技能执行质量权重
+    target_skill: 0.5      # 目标技能执行质量权重
+    transition_smooth: 0.2 # 平滑转移质量权重
+  
+  # 支持的技能列表
+  skill: [
+    "loco", 
+    "loco_sit", "sit",
+    "loco_carry", "omomo", "pickUp", "carryWith", "putDown", 
+    "loco_climb", "climb", "climbNoRSI"
+  ]
+  
+  # 技能采样概率（用于AMP discriminator）
+  skillDiscProb: [
+    0.1,
+    0.1, 0.2,
+    0.1, 0.1, 0.05, 0.0, 0.05,
+    0.1, 0.1, 0.1,
+  ]
+  commonSkill: ""
+  enableTaskSpecificDisc: True
+  
+  # 多任务配置
+  enableTaskObs: True
+  enableTaskMaskObs: True
+  enableApplyMaskOnTaskObs: True
+
+  task: ["traj", "sit", "carry", "climb"]
+  taskInitProb: [0.25, 0.25, 0.25, 0.25]  # 平等概率初始化所有任务
+
+  # IET: Interaction Early Termination
+  enableIET: True
+  maxIETSteps: 60
+  successThreshold: 0.2
+
+  # 各任务详细配置
+  traj:
+    numTrajSamples: 10
+    trajSampleTimestep: 0.5
+    speedMin: 0.5
+    speedMax: 1.5
+    accelMax: 2.0
+    sharpTurnProb: 0.02
+    sharpTurnAngle: 1.57
+    failDist: 4.0
+
+    skill: ["loco"]
+    skillInitProb: [1.0]
+
+    eval:
+      successThreshold: 0.3
+      skill: ["loco"]
+      skillInitProb: [1.0]
+  
+  sit:
+    objDatasetDir: "dataset_sit/objects"
+    objCategories: 
+      - "StraightChair_Normal"
+
+    sit_vel_penalty: True
+    sit_vel_pen_coeff: 0.5
+    sit_vel_pen_threshold: 1.3
+    sit_ang_vel_pen_coeff: 0.5
+    sit_ang_vel_pen_threshold: 3.0
+
+    enableIET: True
+
+    skill: ["loco_sit", "sit"]
+    skillInitProb: [0.5, 0.5]
+
+    eval:
+      skill: ["loco_sit", "sit"]
+      skillInitProb: [1.0, 0.0]
+
+  climb:
+    objDatasetDir: "dataset_amass_climb/objects"
+    objCategories: 
+      - "Box"
+      - "Cabinet"
+      - "Table_Square"
+    
+    climb_vel_penalty: True
+    climb_vel_pen_coeff: 1.0
+    climb_vel_pen_threshold: 1.3
+
+    enableIET: True
+    
+    skill: ["loco_climb", "climb", "climbNoRSI"]
+    skillInitProb: [0.5, 0.5, 0.0]
+
+    eval:
+      skill: ["loco_climb", "climb", "climbNoRSI"]
+      skillInitProb: [1.0, 0.0, 0.0]
+
+  carry:
+    onlyVelReward: True
+    onlyHeightHandHeldReward: False
+
+    box_vel_penalty: True
+    box_vel_pen_coeff: 1.0
+    box_vel_pen_threshold: 2.5
+
+    box:
+      build:
+        baseSize: [0.4, 0.4, 0.4]
+        randomSize: True
+        randomModeEqualProportion: True
+        scaleRangeX: [0.5, 1.5]
+        scaleRangeY: [0.5, 1.5]
+        scaleRangeZ: [0.5, 1.5]
+        scaleSampleInterval: 0.125
+
+        testSizes:
+        - [0.22, 0.22, 0.22]
+        - [0.27, 0.27, 0.27]
+        - [0.32, 0.32, 0.32]
+        - [0.37, 0.37, 0.37]
+        - [0.42, 0.42, 0.42]
+        - [0.47, 0.47, 0.47]
+        - [0.52, 0.52, 0.52]
+        - [0.57, 0.57, 0.57]
+        - [0.30, 0.30, 0.40]
+
+      reset:
+        randomRot: True
+        randomHeight: True
+        randomHeightProb: 0.5
+        maxTopSurfaceHeight: 1.2
+        minBottomSurfaceHeight: 0.0
+
+    skill: ["loco_carry", "pickUp", "carryWith", "putDown", "omomo"]
+    skillInitProb: [0.5, 0.1, 0.3, 0.1, 0.0]
+
+    eval:
+      skill: ["loco_carry", "pickUp", "carryWith", "putDown", "omomo"]
+      skillInitProb: [1.0, 0.0, 0.0, 0.0, 0.0]
+
+  # 功率奖励
+  power_reward: True
+  power_coefficient: 0.0005
+
+  asset:
+    assetRoot: "tokenhsi/data/assets"
+    assetFileName: "mjcf/humanoid/phys_humanoid_v3.xml"
+
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 10.0
+
+  flex:
+    num_inner_iterations: 10
+    warm_start: 0.25

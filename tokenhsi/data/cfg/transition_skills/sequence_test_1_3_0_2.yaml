@@ -1,0 +1,68 @@
+env: 
+  numEnvs: 16
+  episodeLength: 1200  # 40秒用于长序列
+  enableDebugVis: True
+  
+  # 继承基础配置
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2
+  stateInit: "Default"
+  hybridInitProb: 0.8
+  numAMPObsSteps: 10
+  localRootObs: True
+  keyBodies: ["right_hand", "left_hand", "right_foot", "left_foot"]
+  contactBodies: ["right_foot", "left_foot"]
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+  enableSelfCollisionDetection: True
+  
+  # 序列测试模式
+  enableSequenceMode: True
+  testSequence: [1,3,0,2]
+  skillExecutionTime: 6.0
+  transitionTime: 3.0
+  
+  # 评估模式
+  enableTransitionEvaluation: True
+  saveSequenceMetrics: True
+  
+  skill: [
+    "loco", "loco_sit", "sit", "loco_carry", "omomo", "pickUp", 
+    "carryWith", "putDown", "loco_climb", "climb", "climbNoRSI"
+  ]
+  
+  supportedTasks: ["traj", "sit", "carry", "climb"]
+  enableTaskObs: True
+  enableTaskMaskObs: True
+
+  # 任务配置
+  traj:
+    skill: ["loco"]
+  sit:
+    skill: ["loco_sit", "sit"] 
+  carry:
+    skill: ["loco_carry", "pickUp", "carryWith", "putDown"]
+  climb:
+    skill: ["loco_climb", "climb", "climbNoRSI"]
+
+  asset:
+    assetRoot: "tokenhsi/data/assets"
+    assetFileName: "mjcf/phys_humanoid_v3.xml"
+
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0

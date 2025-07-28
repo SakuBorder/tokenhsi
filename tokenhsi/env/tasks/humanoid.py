@@ -45,6 +45,8 @@ class Humanoid(BaseTask):
         self.physics_engine = physics_engine
 
         self._pd_control = self.cfg["env"]["pdControl"]
+        # print(self._pd_control )
+        # import ipdb;ipdb.set_trace()
         self.power_scale = self.cfg["env"]["powerScale"]
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
@@ -80,11 +82,18 @@ class Humanoid(BaseTask):
         rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
         contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
 
-        sensors_per_env = 2
-        self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, sensors_per_env * 6)
+        # sensors_per_env = 2
+        # self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, sensors_per_env * 6)
+        if hasattr(self, '_has_foot_sensors') and self._has_foot_sensors:
+            sensors_per_env = 2
+            self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, sensors_per_env * 6)
+        else:
+            # 没有传感器的情况
+            sensors_per_env = 0
+            self.vec_sensor_tensor = torch.zeros((self.num_envs, 0), device=self.device)
 
-        dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
-        self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs, self.num_dof)
+            dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
+            self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs, self.num_dof)
         
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -97,6 +106,15 @@ class Humanoid(BaseTask):
         self._humanoid_root_states = self._root_states.view(self.num_envs, num_actors, actor_root_state.shape[-1])[..., 0, :]
         self._initial_humanoid_root_states = self._humanoid_root_states.clone()
         self._initial_humanoid_root_states[:, 7:13] = 0
+        print("=== 初始根状态检查 ===")
+        print(f"_humanoid_root_states: {self._humanoid_root_states[0]}")
+        print(f"_initial_humanoid_root_states: {self._initial_humanoid_root_states[0]}")
+
+        # 检查是否有异常值
+        if torch.any(torch.isnan(self._initial_humanoid_root_states)):
+            print("WARNING: 初始状态包含NaN!")
+        if torch.any(torch.abs(self._initial_humanoid_root_states[:, 7:13]) > 0.1):
+            print("WARNING: 初始速度不为零!")
 
         self._humanoid_actor_ids = num_actors * torch.arange(self.num_envs, device=self.device, dtype=torch.int32)
 
@@ -117,6 +135,7 @@ class Humanoid(BaseTask):
         self._initial_humanoid_rigid_body_states[..., 7:13] = 0
 
         self._rigid_body_pos = rigid_body_state_reshaped[..., :self.num_bodies, 0:3]
+        print("torch.min(self._rigid_body_pos[...,2])=",torch.min(self._rigid_body_pos[...,2]))
         self._rigid_body_rot = rigid_body_state_reshaped[..., :self.num_bodies, 3:7]
         self._rigid_body_vel = rigid_body_state_reshaped[..., :self.num_bodies, 7:10]
         self._rigid_body_ang_vel = rigid_body_state_reshaped[..., :self.num_bodies, 10:13]
@@ -208,19 +227,70 @@ class Humanoid(BaseTask):
         asset_file = self.cfg["env"]["asset"]["assetFileName"]
         num_key_bodies = len(key_bodies)
 
-        if (asset_file == "mjcf/amp_humanoid.xml"):
+        if (asset_file == "mjcf/humanoid/amp_humanoid.xml"):
             self._dof_body_ids = [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
             self._dof_offsets = [0, 3, 6, 9, 10, 13, 14, 17, 18, 21, 24, 25, 28]
             self._dof_obs_size = 72
             self._num_actions = 28
             self._num_actions_joint = self._num_actions
             self._num_obs = 1 + 15 * (3 + 6 + 3 + 3) - 3
-        elif (asset_file == "mjcf/phys_humanoid.xml") or (asset_file == "mjcf/phys_humanoid_v2.xml") or (asset_file == "mjcf/phys_humanoid_v3.xml") or (asset_file == "mjcf/phys_humanoid_v3_box_foot.xml"):
+        elif (asset_file == "mjcf/humanoid/phys_humanoid.xml") or (asset_file == "mjcf/humanoid/phys_humanoid_v2.xml") or (asset_file == "mjcf/humanoid/phys_humanoid_v3.xml") or (asset_file == "mjcf/humanoid/phys_humanoid_v3_box_foot.xml"):
             self._dof_body_ids = [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
             self._dof_offsets = [0, 3, 6, 9, 10, 13, 14, 17, 20, 23, 26, 29, 32]
             self._dof_obs_size = 72
             self._num_actions = 28 + 2 * 2
             self._num_actions_joint = self._num_actions
+            self._num_obs = 1 + 15 * (3 + 6 + 3 + 3) - 3
+        # elif (asset_file == "mjcf/g1/g1_29dof.xml") :
+        #     self._dof_body_ids = [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
+        #     self._dof_offsets = [0, 3, 4, 7, 10, 11, 14, 17, 18, 21, 24, 25, 28]
+        #     self._dof_obs_size = 72
+        #     self._num_actions = 28 + 2 * 2
+        #     self._num_actions_joint = self._num_actions
+        #     self._num_obs = 1 + 15 * (3 + 6 + 3 + 3) - 3
+        elif (asset_file == "mjcf/tai5/tai5.xml") :
+            # TAI5机器人的15个关节体对应的DOF分布
+            self._dof_body_ids = [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
+            
+            # TAI5的DOF偏移表 - 根据实际的关节结构
+            # body 0 (base_link): 无DOF（freejoint不算）
+
+            # body 1 (WAIST_Y_S): 3 DOF (WAIST_Y, WAIST_R, WAIST_P)
+            # body 2 (NECK_Y_S): 1 DOF (NECK_Y) 
+            # body 3 (R_SHOULDER_P_S): 3 DOF (R_SHOULDER_P, R_SHOULDER_R, R_SHOULDER_Y)
+            # body 4 (R_ELBOW_Y_S): 1 DOF (R_ELBOW_Y)
+
+            # body 5 (R_WRIST_R_S): 3 DOF (R_WRIST_P, R_WRIST_Y, R_WRIST_R)
+
+            # body 6 (L_SHOULDER_P_S): 3 DOF (L_SHOULDER_P, L_SHOULDER_R, L_SHOULDER_Y)
+            # body 7 (L_ELBOW_Y_S): 1 DOF (L_ELBOW_Y)
+
+            # body 8 (L_WRIST_R_S): 3 DOF (L_WRIST_P, L_WRIST_Y, L_WRIST_R)
+
+            # body 9 (R_HIP_P_S): 3 DOF (R_HIP_P, R_HIP_R, R_HIP_Y)
+            # body 10 (R_KNEE_P_S): 1 DOF (R_KNEE_P)
+            # body 11 (R_ANKLE_R_S): 2 DOF (R_ANKLE_P, R_ANKLE_R)
+            # body 12 (L_HIP_P_S): 3 DOF (L_HIP_P, L_HIP_R, L_HIP_Y)
+            # body 13 (L_KNEE_P_S): 1 DOF (L_KNEE_P)
+            # body 14 (L_ANKLE_R_S): 2 DOF (L_ANKLE_P, L_ANKLE_R)
+            # self.tai5_node_mapping = {
+            #     'base_link': 0, 'WAIST_Y_S': 1, 'NECK_Y_S': 2, 'R_SHOULDER_P_S': 3, 'R_ELBOW_Y_S': 4,
+            #     'R_WRIST_R_S': 5, 'L_SHOULDER_P_S': 6, 'L_ELBOW_Y_S': 7, 'L_WRIST_R_S': 8,
+            #     'R_HIP_Y_S': 9, 'R_KNEE_P_S': 10, 'R_ANKLE_R_S': 11, 'L_HIP_Y_S': 12, 'L_KNEE_P_S': 13, 'L_ANKLE_R_S': 14
+            # }
+            # self.tai5_node_mapping = {
+            #      'WAIST_Y_S': 1, 'NECK_Y_S': 2, 'R_SHOULDER_P_S': 3, 'R_ELBOW_Y_S': 4,
+            #      'L_SHOULDER_P_S': 6, 'L_ELBOW_Y_S': 7, 
+            #     'R_HIP_Y_S': 9, 'R_KNEE_P_S': 10, 'R_ANKLE_R_S': 11, 'L_HIP_Y_S': 12, 'L_KNEE_P_S': 13, 'L_ANKLE_R_S': 14
+            # }
+            # [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
+            self._dof_offsets = [0, 3, 6, 9, 10, 13, 14, 17, 19, 22, 25, 27, 30]
+            #                  ^  ^  ^  ^  ^  ^   ^   ^   ^   ^   ^   ^   ^   ^   ^
+            #                  0  1  2  3  4  5   6   7   8   9  10  11  12  13  14
+            
+            self._dof_obs_size = 72
+            self._num_actions = 30
+            self._num_actions_joint = self._num_actions  
             self._num_obs = 1 + 15 * (3 + 6 + 3 + 3) - 3
 
         else:
@@ -229,16 +299,52 @@ class Humanoid(BaseTask):
 
         return
 
+    # def _build_termination_heights(self):
+    #     head_term_height = 0.3
+
+    #     termination_height = self.cfg["env"]["terminationHeight"]
+    #     self._termination_heights = np.array([termination_height] * self.num_bodies)
+
+    #     head_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], "head")
+    #     self._termination_heights[head_id] = max(head_term_height, self._termination_heights[head_id])
+    #     self._termination_heights = to_torch(self._termination_heights, device=self.device)
+    #     return
     def _build_termination_heights(self):
         head_term_height = 0.3
-
         termination_height = self.cfg["env"]["terminationHeight"]
         self._termination_heights = np.array([termination_height] * self.num_bodies)
 
-        head_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], "head")
-        self._termination_heights[head_id] = max(head_term_height, self._termination_heights[head_id])
+        asset_file = self.cfg["env"]["asset"]["assetFileName"]
+        
+        if asset_file == "mjcf/tai5/tai5.xml":
+            # tai5的15个主要节点列表
+            tai5_nodes = ['base_link', 'WAIST_Y_S', 'NECK_Y_S', 'R_SHOULDER_P_S', 'R_ELBOW_Y_S', 
+                        'R_WRIST_R_S', 'L_SHOULDER_P_S', 'L_ELBOW_Y_S', 'L_WRIST_R_S', 
+                        'R_HIP_Y_S', 'R_KNEE_P_S', 'R_ANKLE_R_S', 'L_HIP_Y_S', 'L_KNEE_P_S', 'L_ANKLE_R_S']
+            
+            head_name = "NECK_Y_S"  # tai5的头部/颈部
+            
+            # 直接使用列表索引
+            if head_name in tai5_nodes:
+                head_id = tai5_nodes.index(head_name)  # NECK_Y_S 对应索引 2
+                print(f"tai5 head '{head_name}' mapped to index {head_id}")
+                self._termination_heights[head_id] = max(head_term_height, self._termination_heights[head_id])
+            else:
+                print(f"Warning: Could not find head body '{head_name}' in tai5 nodes")
+                
+        else:
+            head_name = "head"      # 标准humanoid的头部
+            
+            # 非tai5模型使用原来的方法
+            head_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], head_name)
+            if head_id != -1:
+                self._termination_heights[head_id] = max(head_term_height, self._termination_heights[head_id])
+            else:
+                print(f"Warning: Could not find head body '{head_name}'")
+        
         self._termination_heights = to_torch(self._termination_heights, device=self.device)
         return
+    
 
     def _create_envs(self, num_envs, spacing, num_per_row):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
@@ -255,27 +361,104 @@ class Humanoid(BaseTask):
         asset_options.angular_damping = 0.01
         asset_options.max_angular_velocity = 100.0
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
-        #asset_options.fix_base_link = True
+        # asset_options.fix_base_link = True
         humanoid_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
         actuator_props = self.gym.get_asset_actuator_properties(humanoid_asset)
         motor_efforts = [prop.motor_effort for prop in actuator_props]
         
-        # create force sensors at the feet
-        right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "right_foot")
-        left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "left_foot")
-        sensor_pose = gymapi.Transform()
-
-        self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose)
-        self.gym.create_asset_force_sensor(humanoid_asset, left_foot_idx, sensor_pose)
+        # 智能传感器创建 - 根据资产类型选择合适的足部关节
+        asset_file_full = self.cfg["env"]["asset"]["assetFileName"]
+        foot_sensor_mapping = {
+            "mjcf/tai5/tai5.xml": ("R_ANKLE_R_S", "L_ANKLE_R_S"),
+            "mjcf/humanoid/amp_humanoid.xml": ("right_foot", "left_foot"),
+            "mjcf/humanoid/phys_humanoid.xml": ("right_foot", "left_foot"),
+            "mjcf/humanoid/phys_humanoid_v2.xml": ("right_foot", "left_foot"),
+            "mjcf/humanoid/phys_humanoid_v3.xml": ("right_foot", "left_foot"),
+            "mjcf/humanoid/phys_humanoid_v3_box_foot.xml": ("right_foot", "left_foot"),
+            "mjcf/g1/g1_29dof.xml": ("right_foot", "left_foot"),
+        }
+        
+        if asset_file_full in foot_sensor_mapping:
+            right_foot_name, left_foot_name = foot_sensor_mapping[asset_file_full]
+            right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, right_foot_name)
+            left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, left_foot_name)
+            
+            if right_foot_idx != -1 and left_foot_idx != -1:
+                sensor_pose = gymapi.Transform()
+                self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose)
+                self.gym.create_asset_force_sensor(humanoid_asset, left_foot_idx, sensor_pose)
+                self._has_foot_sensors = True
+                print(f"Successfully created foot sensors for {asset_file_full}: {right_foot_name}, {left_foot_name}")
+            else:
+                self._has_foot_sensors = False
+                print(f"Warning: Could not find foot bodies for {asset_file_full}")
+                print(f"  Expected: {right_foot_name} (idx: {right_foot_idx}), {left_foot_name} (idx: {left_foot_idx})")
+                # 打印所有可用的刚体名称以帮助调试
+                print("  Available rigid bodies:")
+                for i in range(self.gym.get_asset_rigid_body_count(humanoid_asset)):
+                    body_name = self.gym.get_asset_rigid_body_name(humanoid_asset, i)
+                    print(f"    {i}: {body_name}")
+        else:
+            # 尝试默认的足部名称
+            right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "right_foot")
+            left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "left_foot")
+            
+            if right_foot_idx != -1 and left_foot_idx != -1:
+                sensor_pose = gymapi.Transform()
+                self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose)
+                self.gym.create_asset_force_sensor(humanoid_asset, left_foot_idx, sensor_pose)
+                self._has_foot_sensors = True
+                print(f"Created default foot sensors for {asset_file_full}")
+            else:
+                self._has_foot_sensors = False
+                print(f"Warning: No foot sensor mapping defined for {asset_file_full} and default names not found")
+                print(f"  Please add mapping to foot_sensor_mapping dictionary")
 
         self.max_motor_effort = max(motor_efforts)
         self.motor_efforts = to_torch(motor_efforts, device=self.device)
 
         self.torso_index = 0
-        self.num_bodies = self.gym.get_asset_rigid_body_count(humanoid_asset)
-        self.num_shapes = self.gym.get_asset_rigid_shape_count(humanoid_asset)
-        self.num_dof = self.gym.get_asset_dof_count(humanoid_asset)
+        
+        # **在这里添加tai5的特殊处理**
+        # 检查是否是tai5模型
+        is_tai5 = "tai5" in asset_file_full.lower()
+        
+        if is_tai5:
+            print(f"Detected tai5 model: {asset_file_full}")
+            
+            # 获取原始数量
+            original_num_bodies = self.gym.get_asset_rigid_body_count(humanoid_asset)
+            original_num_shapes = self.gym.get_asset_rigid_shape_count(humanoid_asset)
+            original_num_dof = self.gym.get_asset_dof_count(humanoid_asset)
+            
+            print(f"tai5 original: bodies={original_num_bodies}, shapes={original_num_shapes}, dof={original_num_dof}")
+            
+            # 使用完整的身体数量，不要限制为15
+            self.num_bodies = original_num_bodies  # 使用完整的31个身体
+            self.num_shapes = original_num_shapes
+            
+            # num_dof已经在_setup_character_props中设置了，这里验证一下
+            if hasattr(self, 'num_dof'):
+                print(f"tai5 num_dof already set to: {self.num_dof}")
+            else:
+                self.num_dof = min(original_num_dof, 30)  # 后备方案
+                print(f"tai5 num_dof set as fallback to: {self.num_dof}")
+            
+            print(f"tai5 final: bodies={self.num_bodies}, shapes={self.num_shapes}, dof={self.num_dof}")
+            
+            self.is_tai5_model = True
+            
+        else:
+            # 非tai5模型，使用原始数量
+            self.num_bodies = self.gym.get_asset_rigid_body_count(humanoid_asset)
+            self.num_shapes = self.gym.get_asset_rigid_shape_count(humanoid_asset)
+            self.num_dof = self.gym.get_asset_dof_count(humanoid_asset)
+            
+            print(f"Using full model: bodies={self.num_bodies}, shapes={self.num_shapes}, dof={self.num_dof}")
+            self.is_tai5_model = False
+            
+
 
         self.humanoid_handles = []
         self.envs = []
@@ -302,9 +485,83 @@ class Humanoid(BaseTask):
 
         if (self._pd_control):
             self._build_pd_action_offset_scale()
-
+        # import ipdb;ipdb.set_trace()    
+        print(f"=== 调试tai5身体部件 ===")
+        total_bodies = self.gym.get_asset_rigid_body_count(humanoid_asset)
+        print(f"资产总身体数量: {total_bodies}")
+        
+        for i in range(total_bodies):
+            body_name = self.gym.get_asset_rigid_body_name(humanoid_asset, i)
+            print(f"身体 {i}: {body_name}")
+        
+        print(f"使用的身体数量: {self.num_bodies}")
+        print("=========================")
         return
-    
+    # def _create_envs(self, num_envs, spacing, num_per_row):
+    #     lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+    #     upper = gymapi.Vec3(spacing, spacing, spacing)
+
+    #     asset_root = self.cfg["env"]["asset"]["assetRoot"]
+    #     asset_file = self.cfg["env"]["asset"]["assetFileName"]
+
+    #     asset_path = os.path.join(asset_root, asset_file)
+    #     asset_root = os.path.dirname(asset_path)
+    #     asset_file = os.path.basename(asset_path)
+
+    #     asset_options = gymapi.AssetOptions()
+    #     asset_options.angular_damping = 0.01
+    #     asset_options.max_angular_velocity = 100.0
+    #     asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+    #     #asset_options.fix_base_link = True
+    #     humanoid_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+
+    #     actuator_props = self.gym.get_asset_actuator_properties(humanoid_asset)
+    #     motor_efforts = [prop.motor_effort for prop in actuator_props]
+        
+    #     # create force sensors at the feet
+    #     right_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "right_foot")
+    #     left_foot_idx = self.gym.find_asset_rigid_body_index(humanoid_asset, "left_foot")
+    #     sensor_pose = gymapi.Transform()
+
+    #     self.gym.create_asset_force_sensor(humanoid_asset, right_foot_idx, sensor_pose)
+    #     self.gym.create_asset_force_sensor(humanoid_asset, left_foot_idx, sensor_pose)
+
+    #     self.max_motor_effort = max(motor_efforts)
+    #     self.motor_efforts = to_torch(motor_efforts, device=self.device)
+
+    #     self.torso_index = 0
+    #     self.num_bodies = self.gym.get_asset_rigid_body_count(humanoid_asset)
+    #     self.num_shapes = self.gym.get_asset_rigid_shape_count(humanoid_asset)
+    #     self.num_dof = self.gym.get_asset_dof_count(humanoid_asset)
+
+    #     self.humanoid_handles = []
+    #     self.envs = []
+    #     self.dof_limits_lower = []
+    #     self.dof_limits_upper = []
+        
+    #     for i in range(self.num_envs):
+    #         # create env instance
+    #         env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
+    #         self._build_env(i, env_ptr, humanoid_asset)
+    #         self.envs.append(env_ptr)
+
+    #     dof_prop = self.gym.get_actor_dof_properties(self.envs[0], self.humanoid_handles[0])
+    #     for j in range(self.num_dof):
+    #         if dof_prop['lower'][j] > dof_prop['upper'][j]:
+    #             self.dof_limits_lower.append(dof_prop['upper'][j])
+    #             self.dof_limits_upper.append(dof_prop['lower'][j])
+    #         else:
+    #             self.dof_limits_lower.append(dof_prop['lower'][j])
+    #             self.dof_limits_upper.append(dof_prop['upper'][j])
+
+    #     self.dof_limits_lower = to_torch(self.dof_limits_lower, device=self.device)
+    #     self.dof_limits_upper = to_torch(self.dof_limits_upper, device=self.device)
+
+    #     if (self._pd_control):
+    #         self._build_pd_action_offset_scale()
+
+    #     return
+
     def _build_env(self, env_id, env_ptr, humanoid_asset):
         col_group = env_id
         col_filter = self._get_humanoid_collision_filter()
@@ -312,12 +569,16 @@ class Humanoid(BaseTask):
 
         start_pose = gymapi.Transform()
         asset_file = self.cfg["env"]["asset"]["assetFileName"]
-        if (asset_file == "mjcf/amp_humanoid.xml"):
+        if (asset_file == "mjcf/humanoid/amp_humanoid.xml"):
             self._char_h = 0.89 # perfect number
-        elif (asset_file == "mjcf/phys_humanoid.xml") or (asset_file == "mjcf/phys_humanoid_v2.xml"):
+        elif (asset_file == "mjcf/humanoid/phys_humanoid.xml") or (asset_file == "mjcf/humanoid/phys_humanoid_v2.xml"):
             self._char_h = 0.92 # perfect number
-        elif (asset_file == "mjcf/phys_humanoid_v3.xml") or (asset_file == "mjcf/phys_humanoid_v3_box_foot.xml"):
+        elif (asset_file == "mjcf/humanoid/phys_humanoid_v3.xml") or (asset_file == "mjcf/humanoid/phys_humanoid_v3_box_foot.xml"):
             self._char_h = 0.94
+        elif (asset_file == "mjcf/g1/g1_29dof.xml") :
+            self._char_h = 0.94
+        elif (asset_file == "mjcf/tai5/tai5.xml"):
+            self._char_h = 0.96  # TAI5的高度（根据MJCF中base_link的pos="0 0 0.96"）
         else:
             print("Unsupported character config file: {s}".format(asset_file))
             assert(False)
@@ -325,8 +586,23 @@ class Humanoid(BaseTask):
         start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         humanoid_handle = self.gym.create_actor(env_ptr, humanoid_asset, start_pose, "humanoid", col_group, col_filter, segmentation_id)
-
         self.gym.enable_actor_dof_force_sensors(env_ptr, humanoid_handle)
+
+        # # 为TAI5设置特殊的DOF属性（在创建actor之后）
+        # if (asset_file == "mjcf/tai5/tai5.xml"):
+        #     dof_props = self.gym.get_actor_dof_properties(env_ptr, humanoid_handle)
+            
+        #     # 大幅降低刚度和增加阻尼
+        #     for i in range(len(dof_props['damping'])):
+        #         dof_props['damping'][i] = 10.0   # 增加阻尼
+        #         dof_props['stiffness'][i] = 50.0  # 大幅降低刚度
+                
+        #         # 对于某些关键关节可以设置更低的值
+        #         if i < 6:  # 假设前6个是腰部关节
+        #             dof_props['stiffness'][i] = 20.0
+            
+        #     self.gym.set_actor_dof_properties(env_ptr, humanoid_handle, dof_props)
+        #     print(f"Applied TAI5 low-gain DOF properties")
 
         for j in range(self.num_bodies):
             self.gym.set_rigid_body_color(env_ptr, humanoid_handle, j, gymapi.MESH_VISUAL, gymapi.Vec3(0.54, 0.85, 0.2))
@@ -337,9 +613,7 @@ class Humanoid(BaseTask):
             self.gym.set_actor_dof_properties(env_ptr, humanoid_handle, dof_prop)
 
         self.humanoid_handles.append(humanoid_handle)
-
         return
-
     def _build_pd_action_offset_scale(self):
         num_joints = len(self._dof_offsets) - 1
         
@@ -392,6 +666,7 @@ class Humanoid(BaseTask):
         Setting the collision filter to 0 will enable collisions between all shapes in the actor. 
         Setting the collision filter to anything > 0 will disable all self collisions.
         """
+        # return 1
         if self.cfg["env"]["enableSelfCollisionDetection"]:
             return 0
         else:
@@ -440,7 +715,17 @@ class Humanoid(BaseTask):
             body_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 7:10]
             body_ang_vel = self._kinematic_humanoid_rigid_body_states[env_ids, :, 10:13]
 
-        obs = compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, self._local_root_obs_policy,
+        # TAI5特殊处理：只使用前15个身体进行观察计算
+        asset_file = self.cfg["env"]["asset"]["assetFileName"]
+        if asset_file == "mjcf/tai5/tai5.xml":
+            # 只使用前15个关键身体，保持与motion数据的一致性
+            body_pos = body_pos[:, :15, :]
+            body_rot = body_rot[:, :15, :]
+            body_vel = body_vel[:, :15, :]
+            body_ang_vel = body_ang_vel[:, :15, :]
+
+        obs = compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, 
+                                                self._local_root_obs_policy,
                                                 self._root_height_obs_policy)
         return obs
 
@@ -469,6 +754,25 @@ class Humanoid(BaseTask):
         return
 
     def post_physics_step(self):
+        # root_heights = self._rigid_body_pos[:, 0, 2]
+        # flying_envs = torch.where(root_heights > 1.8)[0]
+        # if len(flying_envs) > 0:
+        #     print(f"Flying envs detected: {flying_envs}")
+        #     print(f"Heights: {root_heights[flying_envs]}")
+        #     print(f"Root states: {self._humanoid_root_states[flying_envs]}")
+        #     max_contact_forces = torch.max(torch.abs(self._contact_forces), dim=-1)[0]
+        #     max_per_env = torch.max(max_contact_forces, dim=-1)[0]
+            
+        #     abnormal_contact = torch.where(max_per_env > 500.0)[0]  # 超过100N认为异常
+        #     if len(abnormal_contact) > 0:
+        #         print(f"异常接触力环境: {abnormal_contact[:5]}")  # 只打印前5个
+        #         print(f"最大接触力: {max_per_env[abnormal_contact[:5]]}")
+                
+        #         # 检查具体是哪个身体部位有问题
+        #         for env_id in abnormal_contact[:2]:  # 只检查前2个
+        #             body_forces = torch.abs(self._contact_forces[env_id])
+        #             problem_bodies = torch.where(torch.max(body_forces, dim=-1)[0] > 100.0)[0]
+        #             print(f"环境{env_id}问题身体部位: {problem_bodies}")
         self.progress_buf += 1
 
         self._refresh_sim_tensors()
@@ -491,19 +795,63 @@ class Humanoid(BaseTask):
         super().render(sync_frame_time)
         return
 
+    # def _build_key_body_ids_tensor(self, key_body_names):
+    #     env_ptr = self.envs[0]
+    #     actor_handle = self.humanoid_handles[0]
+    #     body_ids = []
+    #     # import ipdb;ipdb.set_trace()
+    #     for body_name in key_body_names:
+    #         body_id = self.gym.find_actor_rigid_body_handle(env_ptr, actor_handle, body_name)
+    #         assert(body_id != -1)
+    #         body_ids.append(body_id)
+
+    #     body_ids = to_torch(body_ids, device=self.device, dtype=torch.long)
+    #     import ipdb;ipdb.set_trace()
+    #     return body_ids
     def _build_key_body_ids_tensor(self, key_body_names):
         env_ptr = self.envs[0]
         actor_handle = self.humanoid_handles[0]
-        body_ids = []
-
-        for body_name in key_body_names:
-            body_id = self.gym.find_actor_rigid_body_handle(env_ptr, actor_handle, body_name)
-            assert(body_id != -1)
-            body_ids.append(body_id)
+        
+        # 检查是否是tai5模型
+        # 可以通过检查第一个节点名称或其他方式判断
+        first_body_name = key_body_names[0] if key_body_names else ""
+        
+        # tai5的15个主要节点映射
+        tai5_15_nodes = [
+            'base_link', 'WAIST_Y_S', 'NECK_Y_S', 'R_SHOULDER_P_S', 'R_ELBOW_Y_S', 
+            'R_WRIST_R_S', 'L_SHOULDER_P_S', 'L_ELBOW_Y_S', 'L_WRIST_R_S', 
+            'R_HIP_Y_S', 'R_KNEE_P_S', 'R_ANKLE_R_S', 'L_HIP_Y_S', 'L_KNEE_P_S', 'L_ANKLE_R_S'
+        ]
+        
+        # 检查是否是tai5格式的body名称
+        if any(name in tai5_15_nodes for name in key_body_names):
+            print("Detected tai5 format, using direct index mapping")
+            body_ids = []
+            for body_name in key_body_names:
+                if body_name in tai5_15_nodes:
+                    # 直接使用在tai5_15_nodes中的索引
+                    body_id = tai5_15_nodes.index(body_name)
+                    print(f"tai5 body '{body_name}' -> index {body_id}")
+                else:
+                    # 如果找不到，使用gym查找（后备方案）
+                    body_id = self.gym.find_actor_rigid_body_handle(env_ptr, actor_handle, body_name)
+                    if body_id == -1:
+                        print(f"Warning: Body '{body_name}' not found, using index 0")
+                        body_id = 0
+                body_ids.append(body_id)
+        else:
+            # 非tai5格式，使用原来的方法
+            body_ids = []
+            for body_name in key_body_names:
+                body_id = self.gym.find_actor_rigid_body_handle(env_ptr, actor_handle, body_name)
+                assert(body_id != -1)
+                body_ids.append(body_id)
 
         body_ids = to_torch(body_ids, device=self.device, dtype=torch.long)
+        print(f"Final body_ids: {body_ids}")
+        # import ipdb;ipdb.set_trace()
         return body_ids
-
+    
     def _build_contact_body_ids_tensor(self, contact_body_names):
         env_ptr = self.envs[0]
         actor_handle = self.humanoid_handles[0]
@@ -557,6 +905,8 @@ class Humanoid(BaseTask):
         self.gym.clear_lines(self.viewer)
         return
     
+
+    
     def _fetch_humanoid_rigid_body_pos_rot_states(self, env_ids=None):
         if env_ids is None:
             env_ids = to_torch(np.arange(self.num_envs), dtype=torch.long, device=self.device)
@@ -590,16 +940,28 @@ def dof_to_obs(pose, dof_obs_size, dof_offsets):
         joint_pose = pose[:, dof_offset:(dof_offset + dof_size)]
 
         # assume this is a spherical joint
+        # import ipdb;ipdb.set_trace()
+        # print(dof_size)
         if (dof_size == 3):
             joint_pose_q = torch_utils.exp_map_to_quat(joint_pose)
+        elif (dof_size == 2):
+            # 2DOF关节支持（踝关节：pitch + roll）
+            axis1 = torch.tensor([1.0, 0.0, 0.0], dtype=joint_pose.dtype, device=pose.device)  # pitch
+            axis2 = torch.tensor([0.0, 0.0, 1.0], dtype=joint_pose.dtype, device=pose.device)  # roll
+            
+            q1 = quat_from_angle_axis(joint_pose[..., 0], axis1)
+            q2 = quat_from_angle_axis(joint_pose[..., 1], axis2)
+            joint_pose_q = torch_utils.quat_mul(q1, q2)
         elif (dof_size == 1):
             axis = torch.tensor([0.0, 1.0, 0.0], dtype=joint_pose.dtype, device=pose.device)
             joint_pose_q = quat_from_angle_axis(joint_pose[..., 0], axis)
         else:
             joint_pose_q = None
             assert(False), "Unsupported joint type"
-
+        # import ipdb;ipdb.set_trace()
         joint_dof_obs = torch_utils.quat_to_tan_norm(joint_pose_q)
+        # print(f"Joint {j}: dof_size={dof_size}, joint_pose_q.shape={joint_pose_q.shape}")
+        # print(f"joint_dof_obs.shape={joint_dof_obs.shape}")
         dof_obs[:, (j * joint_obs_size):((j + 1) * joint_obs_size)] = joint_dof_obs
 
     assert((num_joints * joint_obs_size) == dof_obs_size)

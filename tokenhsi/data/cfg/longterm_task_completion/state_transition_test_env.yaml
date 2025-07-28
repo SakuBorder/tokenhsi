@@ -1,0 +1,107 @@
+env: 
+  numEnvs: 64
+  envSpacing: 5
+  episodeLength: 900  # 30秒测试时间
+  enableDebugVis: False
+  
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2
+  stateInit: "Default"
+  hybridInitProb: 0.8
+  numAMPObsSteps: 10
+
+  localRootObs: True
+  localRootObsPolicy: False
+  rootHeightObs: False
+  rootHeightObsPolicy: False
+  keyBodies: ["right_hand", "left_hand", "right_foot", "left_foot"]
+  contactBodies: ["right_foot", "left_foot"]
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+  enableSelfCollisionDetection: True
+  
+  # 长技能任务转移配置
+  maxTransitionSteps: 200
+  maxTransitionStepsDemo: 400
+  successThreshold: 0.5
+  enableIET: True
+  maxIETSteps: 50
+  enableDynObjBUGReset: False
+  enableDynObjFallTermination: False
+  enableDynObjUpfacingTermination: False
+  enableDynObjUpfacingReward: False
+  
+  # 高度图配置（关闭以简化测试）
+  heightmap:
+    use: False
+    cubeHeightMapSideLength: 2.0
+    cubeHeightMapSideNumPoints: 16
+    vizHeightMap: False
+  
+  enableTaskSpecificDisc: False
+  
+  # 技能配置
+  skill: [
+    "loco",
+    "loco_sit", "sit",
+    "loco_carry", "omomo", "pickUp", "carryWith", "putDown",
+    "loco_climb", "climb", "climbNoRSI"
+  ]
+  
+  skillDiscProb: [
+    0.1,
+    0.1, 0.2,
+    0.1, 0.1, 0.05, 0.0, 0.05,
+    0.1, 0.1, 0.1
+  ]
+  
+  enableTaskObs: True
+  enableTaskMaskObs: True
+  enableApplyMaskOnTaskObs: True
+  supportedTasks: ["traj", "sit", "carry", "climb"]
+
+  # 简化的任务配置
+  traj:
+    numTrajSamples: 5
+    trajSampleTimestep: 0.5
+    speedMin: 1.0
+    speedMax: 1.2
+    accelMax: 1.5
+    skill: ["loco"]
+  
+  sit:
+    skill: ["loco_sit", "sit"]
+
+  climb:
+    skill: ["loco_climb", "climb", "climbNoRSI"]
+
+  carry:
+    onlyVelReward: True
+    onlyHeightHandHeldReward: True
+    skill: ["loco_carry", "pickUp", "carryWith", "putDown", "omomo"]
+
+  power_reward: True
+  power_coefficient: 0.0005
+
+  asset:
+    assetRoot: "tokenhsi/data/assets"
+    assetFileName: "mjcf/phys_humanoid_v3.xml"
+
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 10.0

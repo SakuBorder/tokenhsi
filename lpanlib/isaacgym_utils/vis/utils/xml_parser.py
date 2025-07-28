@@ -2,6 +2,11 @@ import os
 import trimesh
 import numpy as np
 import xml.dom.minidom
+import os
+import trimesh
+import xml.etree.ElementTree as ET
+from lpanlib.poselib.skeleton.skeleton3d import SkeletonTree, SkeletonState, SkeletonMotion
+
 
 def create_sphere(pos, size, MESH_SIMPLIFY=True):
     if pos == '':
@@ -81,12 +86,18 @@ def create_box(pos, size, MESH_SIMPLIFY=True):
 def parse_geom_elements_from_xml(xml_path, MESH_SIMPLIFY=True): # only support box, sphere, mesh, and capsule (fromto format)
     dom = xml.dom.minidom.parse(xml_path)
     root = dom.documentElement
-
+    compiler = root.getElementsByTagName('compiler')
+    meshdir = "./"  # 默认值
+    if compiler:
+        meshdir = compiler[0].getAttribute("meshdir") or "./"
+    
     # support mesh type rigid body
     geoms = {}
     for info in root.getElementsByTagName('mesh'):
         name = info.getAttribute("name")
-        file_path = os.path.join(os.path.dirname(xml_path), info.getAttribute("file"))
+        mesh_file = info.getAttribute("file")
+        file_path = os.path.join(os.path.dirname(xml_path), meshdir, mesh_file)
+        # file_path = os.path.join(os.path.dirname(xml_path), info.getAttribute("file"))
         geoms[name] = trimesh.load(file_path, process=False)
 
     body = root.getElementsByTagName('body')
@@ -121,3 +132,79 @@ def parse_geom_elements_from_xml(xml_path, MESH_SIMPLIFY=True): # only support b
         body_meshes.append(mesh)
     
     return body_names, body_meshes
+
+
+def parse_mesh_elements_from_xml(xml_path):
+    """
+    根据G1骨架的实际节点顺序创建网格，确保与骨架完全一致
+    """
+    # 先创建G1骨架获取正确的节点顺序
+    g1_skeleton = SkeletonTree.from_mjcf_g1(xml_path)
+    
+    rigidbody_names = []
+    rigidbody_meshes = []
+
+    # 按照骨架的实际节点顺序创建网格
+    for name in g1_skeleton.node_names:
+        mesh = create_dummy_capsule(name)
+        rigidbody_names.append(name)
+        rigidbody_meshes.append(mesh)
+
+    print(f"[Info] Created {len(rigidbody_meshes)} dummy capsule meshes for joints: {rigidbody_names}")
+    return rigidbody_names, rigidbody_meshes
+
+
+def create_dummy_capsule(name, radius=0.04, height=0.2):
+    """为每个具体部位设置明确的颜色和尺寸，并调整anchor point"""
+    if name == 'pelvis':
+        height, radius = 0.25, 0.06  # 骨盆部位的高度和半径
+        color = [160, 160, 160]  # 颜色：灰色
+        anchor_offset = 0.0  # pelvis保持中心
+    elif name == 'torso':
+        height, radius = 0.30, 0.08  # 躯干部位的高度和半径
+        color = [100, 100, 100]  # 颜色：暗灰色
+        anchor_offset = -height/4  # 向下偏移，顶部连接pelvis
+    elif name == 'head':
+        height, radius = 0.15, 0.08  # 头部的高度和半径
+        color = [255, 150, 200]  # 颜色：浅粉色
+        anchor_offset = height/4   # 向上偏移，底部连接torso
+    elif 'thigh' in name:
+        height, radius = 0.25, 0.055  # 大腿的高度和半径
+        color = [0, 100, 255]  # 颜色：蓝色
+        anchor_offset = height/4   # 向上偏移，顶部连接pelvis
+    elif 'shin' in name:
+        height, radius = 0.25, 0.04  # 小腿的高度和半径
+        color = [255, 255, 0]  # 颜色：黄色
+        anchor_offset = height/4   # 向上偏移，顶部连接thigh
+    elif 'foot' in name:
+        height, radius = 0.10, 0.04  # 脚部的高度和半径
+        color = [255, 128, 0]  # 颜色：橙色
+        anchor_offset = height/4   # 向上偏移，顶部连接shin
+    elif 'upper_arm' in name:
+        height, radius = 0.20, 0.045  # 上臂的高度和半径
+        color = [0, 200, 255]  # 颜色：亮蓝色
+        anchor_offset = height/4   # 向上偏移，顶部连接torso
+    elif 'lower_arm' in name:
+        height, radius = 0.20, 0.035  # 前臂的高度和半径
+        color = [255, 200, 0]  # 颜色：橙黄色
+        anchor_offset = height/4   # 向上偏移，顶部连接upper_arm
+    elif 'hand' in name:
+        height, radius = 0.08, 0.03  # 手部的高度和半径
+        color = [255, 0, 0]  # 颜色：红色
+        anchor_offset = height/4   # 向上偏移，顶部连接lower_arm
+    else:
+        height, radius = 0.2, 0.04  # 默认的高度和半径
+        color = [180, 180, 180]  # 颜色：浅灰色
+        anchor_offset = 0.0
+
+    mesh = trimesh.creation.capsule(radius=radius, height=height, count=[8, 8])
+    
+    # 应用anchor offset - 移动胶囊使关节位置在合适的连接点
+    if anchor_offset != 0.0:
+        offset_transform = np.eye(4)
+        offset_transform[2, 3] = anchor_offset  # Z轴偏移
+        mesh.apply_transform(offset_transform)
+    
+    mesh.visual.vertex_colors = np.tile(color + [255], (mesh.vertices.shape[0], 1))  # 设置每个顶点的颜色
+    return mesh
+

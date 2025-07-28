@@ -1,0 +1,83 @@
+env: 
+  numEnvs: 4096
+  envSpacing: 5
+  episodeLength: 300
+  isFlagrun: False
+  enableDebugVis: True
+
+  pdControl: True
+  powerScale: 1.0
+  controlFrequencyInv: 2      # 控制频率 = 60 Hz / 2 = 30 Hz
+  stateInit: "Default"
+  hybridInitProb: 0.5
+  numAMPObsSteps: 10          # ≥ 2 即可
+
+  localRootObs: True # amp disc obs
+  localRootObsPolicy: False # policy obs
+  rootHeightObs: False # amp disc obs
+  rootHeightObsPolicy: False # policy obs
+
+  # ---------- 关键刚体（必须在 MJCF 中确实存在） ----------
+  keyBodies: ["left_ankle_roll_link", "right_ankle_roll_link"]
+  contactBodies: ["left_ankle_roll_link", "right_ankle_roll_link"]
+  # controlledJoints: [
+  #   "pelvis",
+  #   "left_hip_pitch_link", "left_knee_link", "left_ankle_pitch_link",
+  #   "right_hip_pitch_link", "right_knee_link", "right_ankle_pitch_link",
+  #   "waist_yaw_link", "torso_link",
+  #   "left_shoulder_roll_link", "left_elbow_link",
+  #   "right_shoulder_roll_link", "right_elbow_link",
+  #   "left_wrist_roll_link", "right_wrist_roll_link"
+  # ]
+
+
+  terminationHeight: 0.15
+  enableEarlyTermination: True
+
+  enableSelfCollisionDetection: True
+  enableTrackInitState: True
+
+  skill: "loco_walkonly"
+
+  enableTaskObs: True
+
+  # ---------- 轨迹跟随任务 ----------
+  numTrajSamples: 10
+  trajSampleTimestep: 0.5
+  speedMin: 0.5
+  speedMax: 1.5
+  accelMax: 2.0
+  sharpTurnProb: 0.02
+  sharpTurnAngle: 1.57
+
+  power_reward: True
+  power_coefficient: 0.0005
+
+  eval:
+    successThreshold: 0.3
+
+  asset:
+    assetRoot: "tokenhsi/data/assets"
+    assetFileName: "mjcf/g1/g1_29dof.xml"   # ← 29 DoF 版本
+
+  plane:
+    staticFriction: 1.0
+    dynamicFriction: 1.0
+    restitution: 0.0
+
+sim:
+  substeps: 2
+  physx:
+    num_threads: 4
+    solver_type: 1
+    num_position_iterations: 4
+    num_velocity_iterations: 0
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 10.0
+    default_buffer_size_multiplier: 10.0
+
+  flex:
+    num_inner_iterations: 10
+    warm_start: 0.25

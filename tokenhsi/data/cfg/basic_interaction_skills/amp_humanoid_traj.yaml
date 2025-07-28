@@ -27,7 +27,7 @@ env:
   
   skill: "loco_walkonly"
 
-  enableTaskObs: True
+  enableTaskObs: False
   
   numTrajSamples: 10
   trajSampleTimestep: 0.5 # 10 Hz
@@ -49,7 +49,7 @@ env:
 
   asset:
     assetRoot: "tokenhsi/data/assets"
-    assetFileName: "mjcf/phys_humanoid_v3.xml"
+    assetFileName: "mjcf/humanoid/phys_humanoid_v3.xml"
 
   plane:
     staticFriction: 1.0
